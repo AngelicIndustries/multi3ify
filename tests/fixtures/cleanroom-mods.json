@@ -12,9 +12,9 @@
     "sha256": "52d0782ad805c20b1061711faa64a5fdc4640639738f7cedb1e5b0be46fc8685"
   },
   {
-    "filename": "+Fugue-0.24.4.jar",
-    "url": "https://github.com/CleanroomMC/Fugue/releases/download/0.24.4/%2BFugue-0.24.4.jar",
-    "size": 309884,
-    "sha256": "438248925eb38d16b6b4bcbe6247339b2a745cfe586d4917985f7d925a5d8630"
+    "filename": "+Fugue-0.25.1.jar",
+    "url": "https://github.com/CleanroomMC/Fugue/releases/download/0.25.1/%2BFugue-0.25.1.jar",
+    "size": 309035,
+    "sha256": "071685ef436e3d20b1f105053526134506663dc5ec758e2e1448683d587a8dde"
   }
 ]

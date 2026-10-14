@@ -63,9 +63,7 @@ def verify(root, *, require_cleanroom=False):
             if document["requires"] != [{"uid": "net.minecraft", "equals": cleanroom.GAME_VERSION}]:
                 raise ValueError("Cleanroom must depend on Minecraft 1.12.2")
             for library in document["libraries"]:
-                cleanroom.validate_download(library["downloads"]["artifact"])
-                for artifact in library["downloads"].get("classifiers", {}).values():
-                    cleanroom.validate_download(artifact)
+                cleanroom.validate_library(library)
         if document["uid"] == LWJGL3IFY_UID:
             names = [lib["name"] for lib in document["libraries"]]
             if any(n.startswith(("org.lwjgl.lwjgl:", "net.minecraft:launchwrapper:", "org.ow2.asm:asm-all:")) for n in names):

@@ -22,6 +22,22 @@ from scripts.build_metadata import CLEANROOM_UID, ROOT, segment
 from scripts.smoke_launch import active, download
 
 
+def newer_library(candidate, previous):
+    """Resolve numeric Maven upgrades as Prism does, after platform filtering.
+
+    Refuse ambiguous qualifier-only changes instead of guessing Prism's order.
+    """
+    versions = [lib["name"].split(":")[2] for lib in (candidate, previous)]
+    matches = [re.fullmatch(r"(\d+(?:\.\d+)*)(?:[-.].*)?", v) for v in versions]
+    if all(matches):
+        numbers = [tuple(map(int, m[1].split("."))) for m in matches]
+        width = max(map(len, numbers))
+        left, right = [n + (0,) * (width - len(n)) for n in numbers]
+        if left != right:
+            return left > right
+    raise ValueError(f"New duplicate library needs Prism version comparison: {versions}")
+
+
 def library_tasks(libraries, work):
     """Prism resolves ordinary and extracted-native libraries separately."""
     selected = {}
@@ -32,7 +48,8 @@ def library_tasks(libraries, work):
         key = (bool(library.get("natives")), *parts[:2], *parts[3:])
         previous = selected.get(key)
         if previous is not None and previous != library:
-            raise ValueError(f"New duplicate library needs Prism version comparison: {library['name']}")
+            if not newer_library(library, previous):
+                continue
         selected[key] = library
     tasks, classpath, natives = [], [], []
     for library in selected.values():
@@ -147,14 +164,13 @@ def smoke(site, work, java, timeout):
     for variant, selected in (("empty", runtime), ("modded", pinned)):
         game = work / variant
         game.mkdir(exist_ok=True)
-        if variant == "empty":
-            # Cleanroom 0.6.13 can clear warningPrompt while its splash thread
-            # renders it, crashing when the missing-companion prompt is accepted.
-            # Disable the splash only in this test instance: upstream then logs
-            # the warning and continues without a prompt. Still verify full startup.
-            config = game / "config"
-            config.mkdir(exist_ok=True)
-            (config / "splash.properties").write_text("enabled=false\n")
+        # Keep splash UI races out of the isolated integration checks: 0.6.13
+        # can clear warningPrompt during rendering, and 0.7.4's SDL event pump
+        # can race Foundation's transformer registration on the splash thread.
+        # Both variants still have to finish loading every mod and the renderer.
+        config = game / "config"
+        config.mkdir(exist_ok=True)
+        (config / "splash.properties").write_text("enabled=false\n")
         mods = game / "mods"
         mods.mkdir(exist_ok=True)
         if variant == "modded":

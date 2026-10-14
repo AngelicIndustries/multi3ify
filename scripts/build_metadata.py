@@ -412,9 +412,10 @@ def main():
         parser.error("lwjgl3ify older than 3.0.0 uses an unsupported patch layout")
     if cleanroom.version_key(args.cleanroom_minimum) < cleanroom.version_key(cleanroom.MINIMUM):
         parser.error(f"Cleanroom older than {cleanroom.MINIMUM} uses an unverified patch layout")
+    minecraft = json.loads((args.upstream / "net.minecraft" / f"{cleanroom.GAME_VERSION}.json").read_bytes())
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         profiles = list(pool.map(lambda r: release_profile(r, args.cache), releases(args.minimum)))
-        cleanroom_profiles = list(pool.map(lambda r: cleanroom.release_profile(r, args.cache / "cleanroom"),
+        cleanroom_profiles = list(pool.map(lambda r: cleanroom.release_profile(r, args.cache / "cleanroom", minecraft),
                                            cleanroom.releases(args.cleanroom_minimum)))
     documents = build(args.upstream, args.output, args.site_url, profiles, cleanroom_profiles)
     print(f"Built {len(documents)} lwjgl3ify and {len(cleanroom_profiles) + 1} Cleanroom versions "

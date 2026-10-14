@@ -21,3 +21,11 @@ python3 -m zipfile -e metadata/legacy-forge.zip /tmp/multi3ify-legacy-forge
 component hashes for published Cleanroom releases. CI updates it after a
 successful deployment. The builder refuses to silently replace a published
 numbered release if upstream assets or its generated runtime change.
+
+The Cleanroom importer supports both the 0.6.13 three-patch pack and the 0.7
+layout, which inherits vanilla Minecraft metadata and provides `org.lwjgl` and
+Forge patches. It preserves the pack's component order, native classifiers, Java
+requirements and launch traits. Known, verified empty local jars are translated
+into library omissions so the feed does not depend on instance-local files.
+Inherited Minecraft metadata participates in the release cache key and the
+generated runtime remains protected by the publication lock.

@@ -15,9 +15,13 @@ GAME_VERSION = "1.12.2"
 BRIDGE_VERSION = "1.12.2-cleanroom-latest"
 MAIN_CLASS = "top.outlands.foundation.boot.Foundation"
 RELEASES_API = "https://api.github.com/repos/CleanroomMC/Cleanroom/releases"
-CACHE_SCHEMA = 1
+CACHE_SCHEMA = 2
 LOCK_PATH = ROOT / "metadata/cleanroom-lock.json"
 JAVA_NAMES = {25: "java-runtime-epsilon"}
+EMPTY_OVERRIDES = {
+    "com.ibm.icu:icu4j-core-mojang", "com.mojang:patchy", "oshi-project:oshi-core",
+    "org.lwjgl.lwjgl:lwjgl", "org.lwjgl.lwjgl:lwjgl-platform", "org.lwjgl.lwjgl:lwjgl_util",
+}
 PATCH_FIELDS = {
     "formatVersion", "uid", "version", "name", "order", "releaseTime", "type", "volatile",
     "requires", "libraries", "+jvmArgs", "+tweakers", "+traits", "mainClass",
@@ -63,41 +67,66 @@ def validate_download(artifact):
         raise ValueError(f"Incomplete Cleanroom artifact: {artifact}")
 
 
+def validate_library(library):
+    if library.get("MMC-hint") == "local" or set(library) - {"name", "downloads", "rules", "natives", "extract"}:
+        raise ValueError("Unsupported/local Cleanroom library")
+    downloads = library["downloads"]
+    if set(downloads) - {"artifact", "classifiers"}:
+        raise ValueError("Unknown Cleanroom download kind")
+    # Cleanroom 0.7 splits ordinary jars and classifier-only native entries.
+    if "artifact" in downloads:
+        validate_download(downloads["artifact"])
+    elif not library.get("natives"):
+        raise ValueError("Cleanroom library has no artifact or natives")
+    for artifact in downloads.get("classifiers", {}).values():
+        validate_download(artifact)
+    if any(c not in downloads.get("classifiers", {}) for c in library.get("natives", {}).values()):
+        raise ValueError("Unresolved Cleanroom native classifier")
+
+
+def components(profile):
+    """Return LWJGL, Minecraft, loader, and the component owning Java settings."""
+    patches = profile["patches"]
+    uids = [p["uid"] for p in patches]
+    if uids == ["org.lwjgl3", "net.minecraft", "net.minecraftforge"]:
+        lwjgl, minecraft, loader = patches
+        return lwjgl, minecraft, loader, minecraft
+    if uids == ["net.minecraft", "org.lwjgl", "net.minecraftforge"]:
+        minecraft, lwjgl, loader = patches
+        return lwjgl, minecraft, loader, loader
+    raise ValueError("Unexpected Cleanroom component layout/order")
+
+
 def validate_profile(profile):
     patches = profile["patches"]
-    if [p["uid"] for p in patches] != ["org.lwjgl3", "net.minecraft", "net.minecraftforge"]:
-        raise ValueError("Unexpected Cleanroom component layout/order")
-    lwjgl, minecraft, loader = patches
+    lwjgl, minecraft, loader, java = components(profile)
+    modern = lwjgl["uid"] == "org.lwjgl"
     for patch in patches:
-        if patch.get("formatVersion") != 1 or set(patch) - PATCH_FIELDS:
+        fields = PATCH_FIELDS | ({"logging"} if modern and patch is minecraft else set())
+        if patch.get("formatVersion") != 1 or set(patch) - fields:
             raise ValueError(f"Unrecognized Cleanroom patch fields/format: {patch['uid']}")
         for library in patch["libraries"]:
-            if library.get("MMC-hint") == "local" or set(library) - {
-                "name", "downloads", "rules", "natives", "extract"
-            }:
-                raise ValueError("Unsupported/local Cleanroom library")
-            downloads = library["downloads"]
-            if set(downloads) - {"artifact", "classifiers"}:
-                raise ValueError("Unknown Cleanroom download kind")
-            validate_download(downloads["artifact"])
-            for artifact in downloads.get("classifiers", {}).values():
-                validate_download(artifact)
-            if any(c not in downloads.get("classifiers", {}) for c in library.get("natives", {}).values()):
-                raise ValueError("Unresolved Cleanroom native classifier")
+            validate_library(library)
     if minecraft["version"] != GAME_VERSION or loader["version"] != profile["version"]:
         raise ValueError("Unexpected Cleanroom Minecraft/loader version")
-    if loader["requires"] != [{"uid": "net.minecraft", "equals": GAME_VERSION}]:
+    requirements = [{"uid": "net.minecraft", "equals": GAME_VERSION}]
+    if modern:
+        requirements.append({"uid": "org.lwjgl", "equals": lwjgl["version"]})
+    if loader["requires"] != requirements:
         raise ValueError("Unexpected Cleanroom loader requirements")
-    if (len(minecraft["requires"]) != 1 or minecraft["requires"][0]["uid"] != "org.lwjgl3"
+    if (len(minecraft["requires"]) != 1 or minecraft["requires"][0]["uid"] != lwjgl["uid"]
             or lwjgl.get("requires")):
         raise ValueError("Unexpected Cleanroom runtime requirements")
     if loader["mainClass"] != MAIN_CLASS or loader["+tweakers"] != ["net.minecraftforge.fml.common.launcher.FMLTweaker"]:
         raise ValueError("Unsupported Cleanroom entry point")
-    majors = minecraft["compatibleJavaMajors"]
+    majors = java["compatibleJavaMajors"]
     if not majors or any(type(j) is not int or j < 25 for j in majors) or majors[0] not in JAVA_NAMES:
         raise ValueError("Unsupported Cleanroom Java compatibility")
     for patch in (lwjgl, loader):
-        if any(k in patch for k in ("mainJar", "assetIndex", "minecraftArguments", "compatibleJavaMajors", "compatibleJavaName")):
+        fields = {"mainJar", "assetIndex", "minecraftArguments"}
+        if patch is not java:
+            fields |= {"compatibleJavaMajors", "compatibleJavaName"}
+        if fields & patch.keys():
             raise ValueError("Cleanroom moved game/Java fields between components")
     validate_download(minecraft["mainJar"]["downloads"]["artifact"])
     validate_download(minecraft["assetIndex"])
@@ -113,12 +142,42 @@ def validate_profile(profile):
     ):
         raise ValueError("Mismatched Cleanroom LWJGL versions")
     jars = [lib for lib in libraries if lib["name"].startswith("com.cleanroommc:cleanroom:")]
-    if len(jars) != 1 or jars[0]["name"] != f"com.cleanroommc:cleanroom:{profile['version']}":
+    jar_name = f"com.cleanroommc:cleanroom:{profile['version']}" + (":universal" if modern else "")
+    if len(jars) != 1 or jars[0]["name"] != jar_name:
         raise ValueError("Unexpected Cleanroom universal jar")
     return jars[0]["downloads"]["artifact"]
 
 
-def release_profile(release, cache):
+def remove_empty_overrides(archive, minecraft, loader):
+    """Replace upstream's empty local jars by omitting the libraries they disable.
+
+    Our Minecraft alias has no independent runtime, so it needs neither the
+    placeholder jars nor an LWJGL 2 component to override.
+    """
+    suppressed = set()
+    members = set()
+    for library in loader["libraries"]:
+        if library.get("MMC-hint") != "local":
+            continue
+        parts = library["name"].split(":")
+        coordinate = ":".join(parts[:2])
+        if (set(library) != {"name", "MMC-hint"} or len(parts) != 3
+                or coordinate not in EMPTY_OVERRIDES or parts[2] != "999999.0-empty"):
+            raise ValueError(f"Unsupported local Cleanroom override: {library}")
+        member = f"libraries/{parts[1]}-{parts[2]}.jar"
+        with zipfile.ZipFile(io.BytesIO(archive.read(member))) as jar:
+            if jar.namelist():
+                raise ValueError(f"Cleanroom override is not empty: {member}")
+        members.add(member)
+        suppressed.add(coordinate)
+    if {n for n in archive.namelist() if n.endswith(".jar")} != members:
+        raise ValueError("Unexpected bundled Cleanroom jars")
+    loader["libraries"] = [lib for lib in loader["libraries"] if lib.get("MMC-hint") != "local"]
+    minecraft["libraries"] = [lib for lib in minecraft["libraries"]
+                              if ":".join(lib["name"].split(":")[:2]) not in suppressed]
+
+
+def release_profile(release, cache, minecraft=None):
     version = release["tag_name"].removeprefix("v")
     version_key(version)
     names = {a["name"]: a for a in release["assets"]}
@@ -128,21 +187,37 @@ def release_profile(release, cache):
     assets = [names[name] for name in required]
     fingerprints = [{k: a.get(k) for k in ("id", "name", "size", "updated_at", "digest", "browser_download_url")}
                     for a in assets]
-    key = sha256(encoded({"schema": CACHE_SCHEMA, "assets": fingerprints, "releaseTime": release["published_at"]}))
+    inputs = {"schema": CACHE_SCHEMA, "assets": fingerprints, "releaseTime": release["published_at"]}
+    if version_key(version) >= version_key("0.7.0-alpha"):
+        # New packs inherit vanilla Minecraft instead of shipping its patch.
+        # Include that input in the cache key; publication still enforces locks.
+        if minecraft is None:
+            raise ValueError(f"Cleanroom {version} needs upstream Minecraft metadata")
+        inputs["minecraft"] = minecraft
+    key = sha256(encoded(inputs))
     cached = cache / f"{version}-{key}.json"
     if cached.exists():
         result = json.loads(cached.read_bytes())
     else:
         archive_data = asset_bytes(assets[0])
         with zipfile.ZipFile(io.BytesIO(archive_data)) as archive:
-            expected = {f"patches/{uid}.json" for uid in ("org.lwjgl3", "net.minecraft", "net.minecraftforge")}
+            modern = "minecraft" in inputs
+            uids = (["net.minecraft", "org.lwjgl", "net.minecraftforge"] if modern
+                    else ["org.lwjgl3", "net.minecraft", "net.minecraftforge"])
+            expected = {f"patches/{uid}.json" for uid in uids if not (modern and uid == "net.minecraft")}
             members = [n for n in archive.namelist() if n.endswith(".json")]
-            if len(members) != 4 or set(members) != expected | {"mmc-pack.json"}:
+            if len(members) != len(expected) + 1 or set(members) != expected | {"mmc-pack.json"}:
                 raise ValueError(f"Unexpected Cleanroom archive layout: {members}")
-            components = json.loads(archive.read("mmc-pack.json"))["components"]
-            patches = [json.loads(archive.read(f"patches/{c['uid']}.json")) for c in components]
-            if any(c["version"] != p["version"] for c, p in zip(components, patches)):
+            pack = json.loads(archive.read("mmc-pack.json"))
+            entries = pack["components"]
+            if pack.get("formatVersion") != 1 or [c["uid"] for c in entries] != uids:
+                raise ValueError("Unexpected Cleanroom component layout/order")
+            patches = [copy.deepcopy(minecraft) if modern and uid == "net.minecraft"
+                       else json.loads(archive.read(f"patches/{uid}.json")) for uid in uids]
+            if any(c["uid"] != p["uid"] or c["version"] != p["version"] for c, p in zip(entries, patches)):
                 raise ValueError("Cleanroom pack and patch versions disagree")
+            if modern:
+                remove_empty_overrides(archive, patches[0], patches[2])
         result = {"version": version, "releaseTime": release["published_at"], "patches": patches,
                   "archiveSha256": sha256(archive_data)}
         artifact = validate_profile(result)
@@ -158,8 +233,9 @@ def release_profile(release, cache):
 
 def documents(profile, meta):
     validate_profile(profile)
-    minecraft = copy.deepcopy(profile["patches"][1])
-    majors = minecraft["compatibleJavaMajors"]
+    _, game, _, java_settings = components(profile)
+    minecraft = copy.deepcopy(game)
+    majors = java_settings["compatibleJavaMajors"]
     java_name = JAVA_NAMES[majors[0]]
     java = json.loads((meta / "net.minecraft.java" / f"java{majors[0]}.json").read_bytes())
     if not any(r["name"] == java_name and r["version"]["major"] == majors[0] for r in java["runtimes"]):
@@ -172,7 +248,9 @@ def documents(profile, meta):
     for field in ("libraries", "+jvmArgs", "+tweakers", "+traits"):
         runtime[field] = [copy.deepcopy(value) for patch in profile["patches"] for value in patch.get(field, [])]
     runtime["mainClass"] = MAIN_CLASS
-    for field in ("libraries", "mainClass", "compatibleJavaMajors", "compatibleJavaName", "+jvmArgs", "+tweakers", "+traits"):
+    # The vanilla logging configuration targets its old Log4j runtime. Like
+    # the 0.6 Minecraft patch, leave logging to Cleanroom's own configuration.
+    for field in ("libraries", "logging", "mainClass", "compatibleJavaMajors", "compatibleJavaName", "+jvmArgs", "+tweakers", "+traits"):
         minecraft.pop(field, None)
     minecraft.update({"name": "Minecraft 1.12.2 + Cleanroom", "order": -2,
                       "releaseTime": profile["releaseTime"],
