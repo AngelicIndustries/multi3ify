@@ -18,8 +18,8 @@ RELEASES_API = "https://api.github.com/repos/CleanroomMC/Cleanroom/releases"
 CACHE_SCHEMA = 2
 LOCK_PATH = ROOT / "metadata/cleanroom-lock.json"
 JAVA_NAMES = {25: "java-runtime-epsilon"}
-EMPTY_OVERRIDES = {
-    "com.ibm.icu:icu4j-core-mojang", "com.mojang:patchy", "oshi-project:oshi-core",
+LWJGL2_LIBRARIES = {
+    "net.java.jinput:jinput", "net.java.jinput:jinput-platform", "net.java.jutils:jutils",
     "org.lwjgl.lwjgl:lwjgl", "org.lwjgl.lwjgl:lwjgl-platform", "org.lwjgl.lwjgl:lwjgl_util",
 }
 PATCH_FIELDS = {
@@ -154,6 +154,9 @@ def remove_empty_overrides(archive, minecraft, loader):
     Our Minecraft alias has no independent runtime, so it needs neither the
     placeholder jars nor an LWJGL 2 component to override.
     """
+    # Upstream may disable additional vanilla libraries in later releases.
+    # Accept targets inherited from Minecraft, plus its omitted LWJGL 2 package.
+    allowed = LWJGL2_LIBRARIES | {":".join(lib["name"].split(":")[:2]) for lib in minecraft["libraries"]}
     suppressed = set()
     members = set()
     for library in loader["libraries"]:
@@ -162,7 +165,7 @@ def remove_empty_overrides(archive, minecraft, loader):
         parts = library["name"].split(":")
         coordinate = ":".join(parts[:2])
         if (set(library) != {"name", "MMC-hint"} or len(parts) != 3
-                or coordinate not in EMPTY_OVERRIDES or parts[2] != "999999.0-empty"):
+                or coordinate not in allowed or parts[2] != "999999.0-empty"):
             raise ValueError(f"Unsupported local Cleanroom override: {library}")
         member = f"libraries/{parts[1]}-{parts[2]}.jar"
         with zipfile.ZipFile(io.BytesIO(archive.read(member))) as jar:

@@ -25,7 +25,8 @@ numbered release if upstream assets or its generated runtime change.
 The Cleanroom importer supports both the 0.6.13 three-patch pack and the 0.7
 layout, which inherits vanilla Minecraft metadata and provides `org.lwjgl` and
 Forge patches. It preserves the pack's component order, native classifiers, Java
-requirements and launch traits. Known, verified empty local jars are translated
-into library omissions so the feed does not depend on instance-local files.
+requirements and launch traits. Verified empty local jars targeting inherited
+Minecraft libraries or its omitted LWJGL 2 package are translated into library
+omissions so the feed does not depend on instance-local files.
 Inherited Minecraft metadata participates in the release cache key and the
 generated runtime remains protected by the publication lock.

@@ -52,10 +52,9 @@ def source(path):
                       "runtimes": [{"name": "java-runtime-epsilon", "version": {"major": 25}, "runtimeOS": "linux-x64"}]}], name="Java")
 
 
-def modern_profile():
-    # Real 0.7.4 pack, including classifier-only natives and empty local jars:
-    # https://github.com/CleanroomMC/Cleanroom/releases/tag/0.7.4-alpha
-    with zipfile.ZipFile(Path(__file__).parent / "fixtures/cleanroom-0.7.4-alpha.zip") as archive:
+def modern_profile(version="0.7.4-alpha"):
+    # Real release packs, including classifier-only natives and empty local jars.
+    with zipfile.ZipFile(Path(__file__).parent / f"fixtures/cleanroom-{version}.zip") as archive:
         lwjgl = json.loads(archive.read("patches/org.lwjgl.json"))
         loader = json.loads(archive.read("patches/net.minecraftforge.json"))
     for library in loader["libraries"]:
@@ -67,6 +66,7 @@ def modern_profile():
                      logging={"type": "log4j2-xml"})
     minecraft["libraries"] += [{"name": name, "downloads": {"artifact": artifact()}}
                                for name in ("com.mojang:patchy:1.3.9", "oshi-project:oshi-core:1.1",
+                                            "com.ibm.icu:icu4j-core-mojang:51.2", "net.java.dev.jna:platform:3.4.0",
                                             "com.google.guava:guava:21.0")]
     return {**profile(), "version": loader["version"], "patches": [minecraft, lwjgl, loader]}
 
@@ -172,6 +172,28 @@ class CleanroomTests(unittest.TestCase):
             second = cleanroom.release_profile(release, Path(tmp), p["patches"][0])
             self.assertNotEqual(first, second)
             self.assertEqual(fetch.call_count, 4)
+
+    def test_075_overrides_remove_old_jna_and_keep_its_replacement(self):
+        p = modern_profile("0.7.5-alpha")
+        release, data = release_assets(p)
+        with tempfile.TemporaryDirectory() as tmp, patch.object(meta, "fetch", side_effect=data):
+            result = cleanroom.release_profile(release, Path(tmp), p["patches"][0])
+        names = {lib["name"] for patch in result["patches"] for lib in patch["libraries"]}
+        self.assertNotIn("net.java.dev.jna:platform:3.4.0", names)
+        self.assertIn("net.java.dev.jna:jna-platform:5.19.1", names)
+        self.assertIn("com.cleanroommc:cleanroom:0.7.5-alpha:universal", names)
+        self.assertFalse(any(":999999.0-empty" in name for name in names))
+        self.assertIn("net.java.dev.jna:platform:3.4.0", {lib["name"] for lib in p["patches"][0]["libraries"]})
+
+    def test_empty_overrides_follow_inherited_minecraft_libraries(self):
+        p = modern_profile()
+        p["patches"][0]["libraries"].append({"name": "example:inherited:1.0", "downloads": {"artifact": artifact()}})
+        p["patches"][-1]["libraries"].append({"name": "example:inherited:999999.0-empty", "MMC-hint": "local"})
+        release, data = release_assets(p)
+        with tempfile.TemporaryDirectory() as tmp, patch.object(meta, "fetch", side_effect=data):
+            result = cleanroom.release_profile(release, Path(tmp), p["patches"][0])
+        self.assertFalse(any(lib["name"].startswith("example:inherited:")
+                             for patch in result["patches"] for lib in patch["libraries"]))
 
     def test_modern_local_overrides_must_be_known_and_empty(self):
         p = modern_profile()
