@@ -7,13 +7,13 @@ Prism metadata for Minecraft 1.7.10 with [lwjgl3ify](https://github.com/GTNewHor
 1. Set **Settings -> APIs -> Services -> Metadata Server** to:
 
    ```text
-   https://fentanylsolutions.github.io/multi3ify/v1/
+   https://angelicindustries.github.io/multi3ify/
    ```
 
    Or more memorable:
 
    ```text
-   https://meta.fentanylsolutions.org
+   https://meta.angelic.industries
    ```
 
 2. Create one of these profiles, leaving **Mod Loader -> None**:
