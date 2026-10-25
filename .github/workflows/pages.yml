@@ -55,6 +55,15 @@ jobs:
           ref: ${{ vars.PRISM_META_REF }}
           path: .upstream
           persist-credentials: false
+      - name: Check out Fjord authentication metadata
+        uses: actions/checkout@v7
+        with:
+          repository: unmojang/meta-launcher
+          path: .fjord-upstream
+          persist-credentials: false
+          sparse-checkout: |
+            moe.yushi.authlibinjector
+            org.unmojang.loki
       - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
@@ -76,7 +85,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           SITE_URL: ${{ steps.pages.outputs.base_url }}
         run: >-
-          python -m scripts.build_metadata --upstream .upstream --output public
+          python -m scripts.build_metadata --upstream .upstream --fjord-upstream .fjord-upstream --output public
           --site-url "$SITE_URL" --minimum "$LWJGL3IFY_MIN_VERSION"
           --cleanroom-minimum "$CLEANROOM_MIN_VERSION"
       - name: Verify served checksums and dependencies
@@ -114,6 +123,7 @@ jobs:
           state = {
               'metadataRepository': os.environ['PRISM_META_REPOSITORY'],
               'metadataCommit': subprocess.check_output(['git', '-C', '.upstream', 'rev-parse', 'HEAD'], text=True).strip(),
+              'fjordMetadataCommit': subprocess.check_output(['git', '-C', '.fjord-upstream', 'rev-parse', 'HEAD'], text=True).strip(),
               'lwjgl3ifyVersions': status['versions'],
               'cleanroomVersions': status['cleanroom']['versions'],
           }

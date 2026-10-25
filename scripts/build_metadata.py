@@ -33,6 +33,7 @@ RELEASES_API = "https://api.github.com/repos/GTNewHorizons/lwjgl3ify/releases"
 CACHE_SCHEMA = 1
 MC_ALIASES = {MC_VERSION: GAME_VERSION, "1.12.2-cleanroom": "1.12.2"}
 CLEANROOM_UID = "io.github.jackofnonetrades.cleanroom"
+FJORD_PACKAGES = ("moe.yushi.authlibinjector", "org.unmojang.loki")
 
 
 def encoded(value):
@@ -77,11 +78,20 @@ def reported_version(uid, metadata_version):
     return metadata_version
 
 
-def mirror(source, target):
+def mirror(source, target, *, packages=None):
     """Copy every indexed file verbatim, checking the complete checksum chain."""
     root = json.loads((source / "index.json").read_bytes())
     if root.get("formatVersion") != 1:
         raise ValueError("Unsupported Prism metadata format")
+    if packages is not None:
+        missing = set(packages) - {p["uid"] for p in root["packages"]}
+        if missing:
+            raise ValueError(f"Missing supplemental metadata packages: {sorted(missing)}")
+        root["packages"] = [p for p in root["packages"] if p["uid"] in packages]
+        target_root = json.loads((target / "index.json").read_bytes())
+        existing = {p["uid"] for p in target_root["packages"]}
+        if existing.intersection(packages):
+            raise ValueError("Supplemental metadata would overwrite an upstream package")
     count = 0
     for package in root["packages"]:
         uid = segment(package["uid"])
@@ -97,7 +107,11 @@ def mirror(source, target):
                 raise ValueError(f"Mismatched version identity: {uid}/{version}")
             (target / uid / f"{version}.json").write_bytes(data)
             count += 1
-    (target / "index.json").write_bytes((source / "index.json").read_bytes())
+    if packages is None:
+        (target / "index.json").write_bytes((source / "index.json").read_bytes())
+    else:
+        target_root["packages"].extend(root["packages"])
+        write_json(target / "index.json", target_root)
     return count
 
 
@@ -351,7 +365,7 @@ def add_versions(meta, uid, documents, *, aliases=None, name=None):
     write_json(root_path, root)
 
 
-def build(source, output, site_url, profiles, cleanroom_profiles=None):
+def build(source, output, site_url, profiles, cleanroom_profiles=None, *, fjord_source=None):
     if output.exists():
         raise ValueError(f"Output already exists; choose a fresh directory: {output}")
     output.mkdir(parents=True)
@@ -359,6 +373,9 @@ def build(source, output, site_url, profiles, cleanroom_profiles=None):
     meta.mkdir()
     count = mirror(source, meta)
     print(f"Mirrored {count} upstream versions", flush=True)
+    if fjord_source is not None:
+        fjord_count = mirror(fjord_source, meta, packages=FJORD_PACKAGES)
+        print(f"Mirrored {fjord_count} Fjord authentication agent versions", flush=True)
     index = json.loads((meta / "net.minecraftforge/index.json").read_bytes())
     forge_versions = [v["version"] for v in index["versions"]
                       if any(r.get("equals") == "1.7.10" and r["uid"] == "net.minecraft"
@@ -400,6 +417,7 @@ def main():
     from scripts import cleanroom
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--upstream", type=Path, required=True, help="Checkout of PrismLauncher/meta-launcher")
+    parser.add_argument("--fjord-upstream", type=Path, help="Checkout of unmojang/meta-launcher for Fjord authentication agents")
     parser.add_argument("--output", type=Path, default=Path("public"), help="Must not exist")
     parser.add_argument("--site-url", required=True, help="Public Pages root, without /v1")
     parser.add_argument("--cache", type=Path, default=Path(".cache/releases"))
@@ -417,7 +435,8 @@ def main():
         profiles = list(pool.map(lambda r: release_profile(r, args.cache), releases(args.minimum)))
         cleanroom_profiles = list(pool.map(lambda r: cleanroom.release_profile(r, args.cache / "cleanroom", minecraft),
                                            cleanroom.releases(args.cleanroom_minimum)))
-    documents = build(args.upstream, args.output, args.site_url, profiles, cleanroom_profiles)
+    documents = build(args.upstream, args.output, args.site_url, profiles, cleanroom_profiles,
+                      fjord_source=args.fjord_upstream)
     print(f"Built {len(documents)} lwjgl3ify and {len(cleanroom_profiles) + 1} Cleanroom versions "
           f"(including latest) at {args.output}")
 

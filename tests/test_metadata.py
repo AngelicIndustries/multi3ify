@@ -79,6 +79,46 @@ class MetadataTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "checksum mismatch"):
                 meta.mirror(source, dest)
 
+    def test_fjord_agents_preserve_prism_packages_and_recommendations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source, fjord, output = (Path(tmp) / name for name in ("prism", "fjord", "public"))
+            upstream(source)
+            upstream(fjord)
+            for uid in meta.FJORD_PACKAGES:
+                meta.add_versions(fjord, uid, [{"uid": uid, "version": "1.2.8", "formatVersion": 1,
+                                               "+agents": [{"name": "example:agent:1.2.8"}]}], name=uid)
+                index_path = fjord / uid / "index.json"
+                index = json.loads(index_path.read_bytes())
+                index["versions"][0]["recommended"] = True
+                digest = meta.write_json(index_path, index)
+                root = json.loads((fjord / "index.json").read_bytes())
+                next(p for p in root["packages"] if p["uid"] == uid)["sha256"] = digest
+                meta.write_json(fjord / "index.json", root)
+            # Unselected Fjord packages must never replace the Prism snapshot.
+            (fjord / "net.minecraft/1.7.10.json").write_text("not valid metadata")
+            with patch.object(meta, "build_bootstrap", return_value={"name": "test:bootstrap:1"}):
+                meta.build(source, output, "https://example.org", [profile()], fjord_source=fjord)
+            target = output / "v1"
+            self.assertEqual((target / "net.minecraft/1.7.10.json").read_bytes(),
+                             (source / "net.minecraft/1.7.10.json").read_bytes())
+            for uid in meta.FJORD_PACKAGES:
+                for file in (fjord / uid).glob("*.json"):
+                    self.assertEqual(file.read_bytes(), (target / uid / file.name).read_bytes())
+            verify(target)
+            with self.assertRaisesRegex(ValueError, "overwrite"):
+                meta.mirror(fjord, target, packages=meta.FJORD_PACKAGES)
+            (fjord / "moe.yushi.authlibinjector/1.2.8.json").write_text("{}")
+            with self.assertRaisesRegex(ValueError, "checksum mismatch"):
+                meta.mirror(fjord, source, packages=meta.FJORD_PACKAGES)
+
+    def test_missing_fjord_package_fails_the_build(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source, target = Path(tmp) / "source", Path(tmp) / "target"
+            upstream(source)
+            upstream(target)
+            with self.assertRaisesRegex(ValueError, "Missing supplemental"):
+                meta.mirror(source, target, packages=meta.FJORD_PACKAGES)
+
     def test_profile_preserves_classpath_order_mac_traits_and_jvm_arguments(self):
         p = profile()
         result = meta.lwjgl3ify_document(p, "10.13.4.1614", {"name": "test:bootstrap:1"})

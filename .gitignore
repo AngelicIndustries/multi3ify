@@ -1,5 +1,6 @@
 /.cache/
 /.upstream/
+/.fjord-upstream/
 /build/
 /public/
 __pycache__/

@@ -2,6 +2,10 @@
 
 Prism metadata for Minecraft 1.7.10 with [lwjgl3ify](https://github.com/GTNewHorizons/lwjgl3ify) and Minecraft 1.12.2 with [Cleanroom](https://github.com/CleanroomMC/Cleanroom/).
 
+Also supports Fjord Launcher: authlib-injector and Loki metadata are mirrored from
+[Fjord's metadata repository](https://github.com/unmojang/meta-launcher), alongside
+the standard Prism packages and custom Minecraft profiles.
+
 ## Setup
 
 1. Set **Settings -> APIs -> Services -> Metadata Server** to:
