@@ -3,6 +3,7 @@
   "metadataCommit": "8e7cbfa2cca19aae0a9c7cc11ffe863915da2d90",
   "fjordMetadataCommit": "49a77768447829482b31da04b979e4d98a2dd68a",
   "lwjgl3ifyVersions": [
+    "3.0.40",
     "3.0.39",
     "3.0.38",
     "3.0.37",
