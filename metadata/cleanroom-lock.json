@@ -68,5 +68,10 @@
     "archiveSha256": "10a515aceffb5f4b48c8d07bddf5ad3b636c027a3d78187b98ac7b2f1f65445f",
     "universalSha256": "765ed2a667424fe0d2b5a2fb77c98918a9ed71368bec487ba7258488f756be8d",
     "documentSha256": "21746ce22e9753f791eb190b811f808440a4cbeb5af49b459018e8c92f1767fa"
+  },
+  "0.7.13-alpha": {
+    "archiveSha256": "d9c78afa211d476060119ac49deb47bf977490bc30a39c8f45a49ab0089b1acd",
+    "universalSha256": "94424c6cf66e9465bbda74278375091e9938fcca71220e98dd8d8c871aa7a3a8",
+    "documentSha256": "1dadef10a2db99d8f3ded15beb691c38bf0815e51ee858e41cff8545af5b9416"
   }
 }

@@ -46,6 +46,7 @@
     "3.0.0"
   ],
   "cleanroomVersions": [
+    "0.7.13-alpha",
     "0.7.12-alpha",
     "0.7.11-alpha",
     "0.7.10-alpha",
