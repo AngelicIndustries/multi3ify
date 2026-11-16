@@ -1,7 +1,7 @@
 {
   "metadataRepository": "PrismLauncher/meta-launcher",
   "metadataCommit": "e74a31c0268598ba391233496a04444679d15c10",
-  "fjordMetadataCommit": "f5a34a92624800eaf7f71591501189af24b560d1",
+  "fjordMetadataCommit": "2e78755f49abdc3c236a0da84422da17b599b51a",
   "lwjgl3ifyVersions": [
     "3.1.0",
     "3.0.42",
