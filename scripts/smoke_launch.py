@@ -131,9 +131,11 @@ def smoke(site, work, timeout):
         virtual.write_bytes(path.read_bytes())
     with ThreadPoolExecutor(max_workers=16) as pool:
         list(pool.map(asset, objects.items()))
-    unimixins = json.loads(fetch("https://api.github.com/repos/LegacyModdingMC/UniMixins/releases/latest"))
-    mod = next(a for a in unimixins["assets"] if re.fullmatch(r"\+unimixins-all-1\.7\.10-[\d.]+\.jar", a["name"]))
-    download({"url": mod["browser_download_url"], "size": mod["size"]}, game / "mods" / mod["name"])
+    helper = dict(arg[2:].split("=", 1) for arg in runtime["+jvmArgs"] if arg.startswith("-Dmulti3ify."))
+    # An instance set up with the old instructions: the helper must replace
+    # this manual copy rather than load UniMixins twice.
+    manual = game / "mods" / f"+unimixins-all-1.7.10-{status['unimixins']}.jar"
+    download({"url": helper["multi3ify.unimixinsUrl"], "sha256": helper["multi3ify.unimixinsSha256"]}, manual)
     args = {"auth_player_name": "MetadataSmokeTest", "version_name": minecraft["version"], "game_directory": str(game),
             "assets_root": str(assets), "assets_index_name": asset_index["id"],
             "auth_uuid": "00000000000000000000000000000000", "auth_access_token": "0",
@@ -156,9 +158,13 @@ def smoke(site, work, timeout):
             while time.monotonic() < deadline:
                 output = log_path.read_text(errors="replace")
                 if "Forge Mod Loader has successfully loaded" in output:
-                    if not (game / "mods/lwjgl3ify-multi3ify-managed.jar").exists():
-                        raise RuntimeError("The helper did not install lwjgl3ify")
-                    print(f"Forge and lwjgl3ify {status['latest']} initialized successfully with UniMixins {unimixins['tag_name']}")
+                    for managed in ("lwjgl3ify-multi3ify-managed.jar", "+unimixins-multi3ify-managed.jar"):
+                        if not (game / "mods" / managed).exists():
+                            raise RuntimeError(f"The helper did not install {managed}")
+                    if manual.exists() or not list((game / ".multi3ify-backups").glob("*-" + manual.name)):
+                        raise RuntimeError("The helper did not back up the manual UniMixins copy")
+                    print(f"Forge and lwjgl3ify {status['latest']} initialized successfully with the managed "
+                          f"UniMixins {status['unimixins']}, which replaced a manual copy")
                     return
                 if process.poll() is not None:
                     break

@@ -70,6 +70,10 @@ def verify(root, *, require_cleanroom=False):
                 raise ValueError("Obsolete runtime library in lwjgl3ify")
             if 8 in document["compatibleJavaMajors"]:
                 raise ValueError("Java 8 in lwjgl3ify")
+            helper = sorted(a.split("=", 1)[0] for a in document["+jvmArgs"] if a.startswith("-Dmulti3ify."))
+            if helper != sorted(f"-Dmulti3ify.{p}" for p in ("modUrl", "modSha256", "unimixinsUrl",
+                                                             "unimixinsSha256", "delegate")):
+                raise ValueError("lwjgl3ify must configure its helper to install lwjgl3ify and UniMixins")
             patches = next(i for i, n in enumerate(names) if n.endswith(":forgePatches"))
             forge = next(i for i, n in enumerate(names) if n.startswith("net.minecraftforge:forge:"))
             if patches >= forge:

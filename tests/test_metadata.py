@@ -1,4 +1,5 @@
 from itertools import permutations
+import io
 import zipfile
 import json
 from pathlib import Path
@@ -8,6 +9,10 @@ from unittest.mock import patch
 
 from scripts import build_metadata as meta
 from scripts.verify_metadata import verify
+
+
+UNIMIXINS = {"version": "0.3.2", "sha256": "b" * 64,
+             "url": "https://example.org/%2Bunimixins-all-1.7.10-0.3.2.jar"}
 
 
 def profile(version="3.0.33"):
@@ -68,6 +73,38 @@ class MetadataTests(unittest.TestCase):
         self.assertEqual([r["tag_name"] for r in result], ["3.0.33", "3.0.10", "3.0.9"])
         self.assertIn("page=2", fetch.call_args.args[0])
 
+    def test_unimixins_uses_newest_stable_combined_jar(self):
+        def jar(plugin):
+            buffer = io.BytesIO()
+            with zipfile.ZipFile(buffer, "w") as archive:
+                archive.writestr("META-INF/MANIFEST.MF", f"Manifest-Version: 1.0\nFMLCorePlugin: {plugin}\n")
+            return buffer.getvalue()
+        combined = jar(meta.UNIMIXINS_PLUGIN)
+        def release(tag, data=combined, name=None, **extra):
+            name = name or f"+unimixins-all-1.7.10-{tag}.jar"
+            return {"tag_name": tag, "draft": False, "prerelease": False, **extra, "assets": [
+                {"name": name.replace(".jar", "-dev.jar"), "size": 1, "browser_download_url": "https://example.org/dev"},
+                {"id": 1, "name": name, "size": len(data), "digest": "sha256:" + meta.sha256(data),
+                 "browser_download_url": f"https://example.org/{tag}.jar"}]}
+        listing = [release("0.3.10-beta"), release("0.4.0", prerelease=True), release("0.5.0", draft=True),
+                   release("0.3.10"), release("0.3.9")]
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp)
+            with patch.object(meta, "fetch", side_effect=[meta.encoded(listing), combined]):
+                result = meta.unimixins_release(cache)
+            self.assertEqual(result, {"version": "0.3.10", "url": "https://example.org/0.3.10.jar",
+                                      "sha256": meta.sha256(combined)})
+            with patch.object(meta, "fetch", side_effect=[meta.encoded(listing)]):
+                self.assertEqual(meta.unimixins_release(cache), result, "cached jars are not downloaded again")
+            module = jar("io.github.legacymoddingmc.unimixins.mixin.MixinCore")
+            with (patch.object(meta, "fetch", side_effect=[meta.encoded([release("0.3.11", module)]), module]),
+                  self.assertRaisesRegex(ValueError, "not the combined")):
+                meta.unimixins_release(cache)
+            renamed = [release("0.3.12", name="unimixins-0.3.12.jar")]
+            with (patch.object(meta, "fetch", side_effect=[meta.encoded(renamed)]),
+                  self.assertRaisesRegex(ValueError, "missing")):
+                meta.unimixins_release(cache)
+
     def test_complete_mirror_preserves_bytes_and_hashes(self):
         with tempfile.TemporaryDirectory() as tmp:
             source, dest = Path(tmp) / "upstream", Path(tmp) / "mirror"
@@ -97,7 +134,8 @@ class MetadataTests(unittest.TestCase):
             # Unselected Fjord packages must never replace the Prism snapshot.
             (fjord / "net.minecraft/1.7.10.json").write_text("not valid metadata")
             with patch.object(meta, "build_bootstrap", return_value={"name": "test:bootstrap:1"}):
-                meta.build(source, output, "https://example.org", [profile()], fjord_source=fjord)
+                meta.build(source, output, "https://example.org", [profile()], unimixins=UNIMIXINS,
+                           fjord_source=fjord)
             target = output / "v1"
             self.assertEqual((target / "net.minecraft/1.7.10.json").read_bytes(),
                              (source / "net.minecraft/1.7.10.json").read_bytes())
@@ -121,7 +159,7 @@ class MetadataTests(unittest.TestCase):
 
     def test_profile_preserves_classpath_order_mac_traits_and_jvm_arguments(self):
         p = profile()
-        result = meta.lwjgl3ify_document(p, "10.13.4.1614", {"name": "test:bootstrap:1"})
+        result = meta.lwjgl3ify_document(p, "10.13.4.1614", {"name": "test:bootstrap:1"}, UNIMIXINS)
         names = [lib["name"] for lib in result["libraries"]]
         self.assertLess(next(i for i, n in enumerate(names) if n.endswith("forgePatches")),
                         next(i for i, n in enumerate(names) if n.startswith("net.minecraftforge:")))
@@ -130,22 +168,25 @@ class MetadataTests(unittest.TestCase):
         self.assertEqual(result["+traits"], ["FirstThreadOnMacOS"])
         self.assertEqual(result["+jvmArgs"][:2], ["--add-opens", "java.base/java.lang=ALL-UNNAMED"])
         self.assertTrue(any("MainStartOnFirstThread" in a for a in result["+jvmArgs"]))
+        self.assertIn("-Dmulti3ify.unimixinsUrl=" + UNIMIXINS["url"], result["+jvmArgs"])
+        self.assertIn("-Dmulti3ify.unimixinsSha256=" + UNIMIXINS["sha256"], result["+jvmArgs"])
         self.assertEqual(p, profile(), "generation must not mutate the cached release")
 
     def test_incompatible_future_releases_fail_closed(self):
         p = profile()
         with self.assertRaisesRegex(ValueError, "targets Forge"):
-            meta.lwjgl3ify_document(p, "10.13.4.9999", {})
+            meta.lwjgl3ify_document(p, "10.13.4.9999", {}, UNIMIXINS)
         p["patches"][-1]["newLaunchMechanism"] = True
         with self.assertRaisesRegex(ValueError, "Unrecognized"):
-            meta.lwjgl3ify_document(p, "10.13.4.1614", {})
+            meta.lwjgl3ify_document(p, "10.13.4.1614", {}, UNIMIXINS)
 
     def test_overlay_preserves_original_versions_and_resolves_from_either_order(self):
         with tempfile.TemporaryDirectory() as tmp:
             source, output = Path(tmp) / "upstream", Path(tmp) / "public"
             upstream(source)
             with patch.object(meta, "build_bootstrap", return_value={"name": "test:bootstrap:1"}):
-                docs = meta.build(source, output, "https://example.org", [profile(), profile("3.0.32")])
+                docs = meta.build(source, output, "https://example.org", [profile(), profile("3.0.32")],
+                                  unimixins=UNIMIXINS)
             self.assertEqual(docs[0]["version"], "latest")
             self.assertEqual(len(docs), 3)
             mirrored = Path(tmp) / "verify"
@@ -173,7 +214,7 @@ class MetadataTests(unittest.TestCase):
             source, output = Path(tmp) / "upstream", Path(tmp) / "public"
             upstream(source)
             with patch.object(meta, "build_bootstrap", return_value={"name": "test:bootstrap:1"}):
-                docs = meta.build(source, output, "https://example.org", [profile()])
+                docs = meta.build(source, output, "https://example.org", [profile()], unimixins=UNIMIXINS)
             root = output / "v1"
             index = json.loads((root / "net.minecraft/index.json").read_bytes())
             entry = next(v for v in index["versions"] if v["version"] == meta.MC_VERSION)
@@ -200,7 +241,7 @@ class MetadataTests(unittest.TestCase):
             source, output = Path(tmp) / "upstream", Path(tmp) / "public"
             upstream(source)
             with patch.object(meta, "build_bootstrap", return_value={"name": "test:bootstrap:1"}):
-                meta.build(source, output, "https://example.org", [profile(), profile("3.0.32")])
+                meta.build(source, output, "https://example.org", [profile(), profile("3.0.32")], unimixins=UNIMIXINS)
             root = output / "v1"
             forge_index = json.loads((root / "net.minecraftforge/index.json").read_bytes())
             self.assertEqual([v["version"] for v in forge_index["versions"]],
@@ -225,8 +266,9 @@ class MetadataTests(unittest.TestCase):
             source, before, after = (Path(tmp) / name for name in ("upstream", "before", "after"))
             upstream(source)
             with patch.object(meta, "build_bootstrap", return_value={"name": "test:bootstrap:1"}):
-                meta.build(source, before, "https://example.org", [profile(), profile("3.0.32")])
-                meta.build(source, after, "https://example.org", [profile("3.0.34"), profile(), profile("3.0.32")])
+                meta.build(source, before, "https://example.org", [profile(), profile("3.0.32")], unimixins=UNIMIXINS)
+                meta.build(source, after, "https://example.org", [profile("3.0.34"), profile(), profile("3.0.32")],
+                           unimixins=UNIMIXINS)
             for version in ("3.0.33", "3.0.32"):
                 path = Path("v1") / meta.LWJGL3IFY_UID / (version + ".json")
                 self.assertEqual((before / path).read_bytes(), (after / path).read_bytes())

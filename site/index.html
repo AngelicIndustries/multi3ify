@@ -25,15 +25,14 @@
   <li>In Prism, open <strong>Settings → APIs → Services → Metadata Server</strong> and paste the URL above.</li>
   <li>Create an instance using <strong>1.7.10-lwjgl3ify</strong> or <strong>1.12.2-cleanroom</strong>.
     Leave the Mod Loader selection at <strong>None</strong>: its loader and runtime are installed automatically.</li>
-  <li>For <strong>lwjgl3ify</strong>, install <a href="https://github.com/LegacyModdingMC/UniMixins/releases">UniMixins</a>
-    (the combined jar, version 0.1.23 or newer) in the instance’s <code>mods</code> folder.
-    For <strong>Cleanroom</strong> with a conventional Forge pack, install
+  <li>For <strong>Cleanroom</strong> with a conventional Forge pack, install
     <a href="https://www.curseforge.com/minecraft/mc-mods/fugue">Fugue</a> and
     <a href="https://www.curseforge.com/minecraft/mc-mods/scalar-legacy">Scalar Legacy</a>.</li>
   <li>Launch. Keep Prism’s automatic Java selection and download enabled so it can supply a compatible Java runtime.</li>
 </ol>
 <p>The launcher profile handles libraries and Java arguments. For lwjgl3ify, a small helper downloads and verifies
-  its matching mod before the game starts, backing up existing copies. Cleanroom launches directly and includes
+  its matching mod and the latest <a href="https://github.com/LegacyModdingMC/UniMixins">UniMixins</a> before the
+  game starts, backing up existing copies. Cleanroom launches directly and includes
   MixinBooter and ConfigAnytime; no UniMixins or Relauncher is needed. Companion mods remain yours to manage.</p>
 <p class="muted">Current Cleanroom releases use Java 25. Packs using Scala 3 mods need
   <a href="https://www.curseforge.com/minecraft/mc-mods/scalar">Scalar</a> instead of Scalar Legacy.
@@ -48,7 +47,8 @@
 <h2>Add to an existing instance</h2>
 <p>Set the metadata URL above, then open <strong>Edit Instance → Version → Minecraft → Change version</strong>
   and choose <strong>1.7.10-lwjgl3ify</strong>. Prism switches the ordinary Forge component and adds lwjgl3ify
-  in place. Your worlds, mods, and configuration stay in the same instance. Install UniMixins if needed and launch.</p>
+  in place. Your worlds, mods, and configuration stay in the same instance. Launch; any lwjgl3ify or UniMixins jars
+  you installed yourself are moved to <code>.multi3ify-backups</code>.</p>
 <p>For an existing <strong>1.12.2</strong> instance, choose <strong>1.12.2-cleanroom</strong> in the same Minecraft
   version dialog. Install Fugue and the appropriate Scalar provider, and review Cleanroom’s
   <a href="https://cleanroommc.com/wiki/end-user-guide/preparing-your-modpack">modpack migration guide</a>

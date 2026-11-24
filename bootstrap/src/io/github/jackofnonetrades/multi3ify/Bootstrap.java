@@ -1,5 +1,6 @@
 package io.github.jackofnonetrades.multi3ify;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
@@ -7,6 +8,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
@@ -17,20 +19,59 @@ import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.jar.Manifest;
+import java.util.regex.Pattern;
 
-/** Installs the metadata-selected mod before RFB/Forge discovers mods. */
+/** Installs the metadata-selected mods before RFB/Forge discovers mods. */
 public final class Bootstrap {
-    static final String MANAGED = "lwjgl3ify-multi3ify-managed.jar";
+    static final Mod LWJGL3IFY = new Mod("lwjgl3ify", "lwjgl3ify-multi3ify-managed.jar", "multi3ify.mod",
+            "me.eigenraven.lwjgl3ify.core.Lwjgl3ifyCoremod", null);
+    // Upstream's "+" prefix sorts it before mods that embed an older Mixin. Every
+    // UniMixins jar, including the separate modules, names itself in mcmod.info.
+    static final Mod UNIMIXINS = new Mod("UniMixins", "+unimixins-multi3ify-managed.jar", "multi3ify.unimixins",
+            "io.github.legacymoddingmc.unimixins.all.AllCore",
+            Pattern.compile("\"name\"\\s*:\\s*\"UniMixins(\"|: )"));
+    static final Mod[] MODS = {LWJGL3IFY, UNIMIXINS};
+
+    static final class Mod {
+        final String name;
+        final String managed;
+        final String property;
+        final String plugin;
+        final Pattern modInfo;
+
+        Mod(String name, String managed, String property, String plugin, Pattern modInfo) {
+            this.name = name;
+            this.managed = managed;
+            this.property = property;
+            this.plugin = plugin;
+            this.modInfo = modInfo;
+        }
+
+        /** True for the exact jar the metadata selects. */
+        boolean isRelease(Path path) {
+            return matches(path, plugin, null);
+        }
+
+        /** True for any copy that would load alongside the managed jar. */
+        boolean isCopy(Path path) {
+            return Files.isRegularFile(path) && path.getFileName().toString().endsWith(".jar")
+                    && matches(path, plugin, modInfo);
+        }
+    }
 
     private Bootstrap() {}
 
     public static void main(String[] args) throws Throwable {
         checkRuntime();
-        String digest = required("multi3ify.modSha256");
-        if (!digest.matches("[a-f0-9]{64}")) {
-            throw new IOException("Invalid lwjgl3ify SHA-256 in launcher metadata");
+        String[] digests = new String[MODS.length];
+        for (int i = 0; i < MODS.length; i++) {
+            digests[i] = required(MODS[i].property + "Sha256");
+            if (!digests[i].matches("[a-f0-9]{64}")) {
+                throw new IOException("Invalid " + MODS[i].name + " SHA-256 in launcher metadata");
+            }
         }
         Path game = Paths.get(".").toAbsolutePath().normalize();
         for (int i = 0; i < args.length - 1; i++) {
@@ -47,19 +88,23 @@ public final class Bootstrap {
             }
             Path mods = game.resolve("mods");
             Files.createDirectories(mods);
-            Path managed = mods.resolve(MANAGED);
-            Path download = null;
+            Path[] sources = new Path[MODS.length];
+            List<Path> downloads = new ArrayList<>();
             try {
-                Path source = managed;
-                if (!Files.isRegularFile(managed) || !sha256(managed).equals(digest)) {
-                    download = Files.createTempFile(mods, ".multi3ify-", ".tmp");
-                    System.out.println("[multi3ify] Installing the selected lwjgl3ify version...");
-                    download(required("multi3ify.modUrl"), download);
-                    source = download;
+                // Download everything first, so a network failure leaves every mod as it was.
+                for (int i = 0; i < MODS.length; i++) {
+                    sources[i] = mods.resolve(MODS[i].managed);
+                    if (!Files.isRegularFile(sources[i]) || !sha256(sources[i]).equals(digests[i])) {
+                        Path download = Files.createTempFile(mods, ".multi3ify-", ".tmp");
+                        downloads.add(download);
+                        System.out.println("[multi3ify] Installing the selected " + MODS[i].name + " version...");
+                        download(MODS[i], required(MODS[i].property + "Url"), download);
+                        sources[i] = download;
+                    }
                 }
-                install(game, source, digest);
+                for (int i = 0; i < MODS.length; i++) install(game, MODS[i], sources[i], digests[i]);
             } finally {
-                if (download != null) Files.deleteIfExists(download);
+                for (Path download : downloads) Files.deleteIfExists(download);
             }
         }
         // Calling on this thread preserves upstream's macOS first-thread entry point.
@@ -96,7 +141,7 @@ public final class Bootstrap {
         return value;
     }
 
-    private static void download(String address, Path destination) throws IOException {
+    private static void download(Mod mod, String address, Path destination) throws IOException {
         URL url = new URL(address);
         for (int redirect = 0; redirect < 6; redirect++) {
             if (!url.getProtocol().equals("https")) throw new IOException("Mod downloads require HTTPS");
@@ -113,7 +158,7 @@ public final class Bootstrap {
                     url = new URL(url, location);
                     continue;
                 }
-                if (status != 200) throw new IOException("lwjgl3ify download returned HTTP " + status);
+                if (status != 200) throw new IOException(mod.name + " download returned HTTP " + status);
                 try (InputStream input = connection.getInputStream()) {
                     Files.copy(input, destination, StandardCopyOption.REPLACE_EXISTING);
                 }
@@ -122,7 +167,7 @@ public final class Bootstrap {
                 connection.disconnect();
             }
         }
-        throw new IOException("Too many lwjgl3ify download redirects");
+        throw new IOException("Too many " + mod.name + " download redirects");
     }
 
     static String sha256(Path path) throws Exception {
@@ -137,36 +182,40 @@ public final class Bootstrap {
         return hex.toString();
     }
 
-    static boolean isLwjgl3ify(Path path) {
-        if (!Files.isRegularFile(path) || !path.getFileName().toString().endsWith(".jar")) return false;
-        return hasLwjgl3ifyManifest(path);
-    }
-
-    private static boolean hasLwjgl3ifyManifest(Path path) {
+    private static boolean matches(Path path, String plugin, Pattern modInfo) {
         try (JarFile jar = new JarFile(path.toFile())) {
             Manifest manifest = jar.getManifest();
-            if (manifest == null) return false;
-            String plugin = manifest.getMainAttributes().getValue("FMLCorePlugin");
-            return "me.eigenraven.lwjgl3ify.core.Lwjgl3ifyCoremod".equals(plugin);
+            if (manifest != null && plugin.equals(manifest.getMainAttributes().getValue("FMLCorePlugin"))) {
+                return true;
+            }
+            JarEntry info = modInfo == null ? null : jar.getJarEntry("mcmod.info");
+            if (info == null) return false;
+            ByteArrayOutputStream text = new ByteArrayOutputStream();
+            try (InputStream input = jar.getInputStream(info)) {
+                byte[] buffer = new byte[8192];
+                int count;
+                while ((count = input.read(buffer)) != -1) text.write(buffer, 0, count);
+            }
+            return modInfo.matcher(new String(text.toByteArray(), StandardCharsets.UTF_8)).find();
         } catch (IOException e) {
             return false;
         }
     }
 
-    static void install(Path game, Path source, String expectedDigest) throws Exception {
+    static void install(Path game, Mod mod, Path source, String expectedDigest) throws Exception {
         // Verify before touching either the managed mod or any existing manual copies.
-        if (!sha256(source).equals(expectedDigest) || !hasLwjgl3ifyManifest(source)) {
-            throw new IOException("lwjgl3ify download failed verification; existing mods were preserved");
+        if (!sha256(source).equals(expectedDigest) || !mod.isRelease(source)) {
+            throw new IOException(mod.name + " download failed verification; existing mods were preserved");
         }
         Path mods = game.resolve("mods");
         Files.createDirectories(mods);
-        Path managed = mods.resolve(MANAGED);
+        Path managed = mods.resolve(mod.managed);
         List<Path> duplicates = new ArrayList<>();
         for (Path directory : new Path[] {mods, mods.resolve("1.7.10")}) {
             if (!Files.isDirectory(directory)) continue;
             try (DirectoryStream<Path> files = Files.newDirectoryStream(directory, "*.jar")) {
                 for (Path file : files) {
-                    if (!file.equals(managed) && isLwjgl3ify(file)) duplicates.add(file);
+                    if (!file.equals(managed) && mod.isCopy(file)) duplicates.add(file);
                 }
             }
         }

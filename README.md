@@ -24,7 +24,7 @@ the standard Prism packages and custom Minecraft profiles.
 
    | Profile | Installed automatically | Add to `mods` yourself |
    | --- | --- | --- |
-   | **`1.7.10-lwjgl3ify`** | Matching Forge, lwjgl3ify runtime and mod | [UniMixins combined jar](https://github.com/LegacyModdingMC/UniMixins/releases) (0.1.23+) |
+   | **`1.7.10-lwjgl3ify`** | Matching Forge, lwjgl3ify runtime and mod, latest [UniMixins](https://github.com/LegacyModdingMC/UniMixins) | Nothing |
    | **`1.12.2-cleanroom`** | Cleanroom loader and its runtime libraries | [Fugue](https://www.curseforge.com/minecraft/mc-mods/fugue) and [Scalar Legacy](https://www.curseforge.com/minecraft/mc-mods/scalar-legacy) for conventional Forge packs |
 
 3. Enable automatic Java selection/download, clear any forced Java 8 override, and launch.
@@ -35,7 +35,8 @@ Select **Edit Instance -> Version -> Minecraft -> Change version**, then choose
 **`1.7.10-lwjgl3ify`** for a 1.7.10 instance or **`1.12.2-cleanroom`** for a 1.12.2 instance.
 Changing Minecraft removes the old LWJGL 2 dependency; changing only Forge leaves it installed.
 Revert any old local Minecraft/Forge, LWJGL, lwjgl3ify or Cleanroom component patches first.
-Worlds, mods, and configuration stay in place.
+Worlds, mods, and configuration stay in place. Copies of lwjgl3ify or UniMixins already in `mods`
+are moved to `.multi3ify-backups` in the instance folder on first launch.
 For Cleanroom, review the upstream [modpack migration guide](https://cleanroommc.com/wiki/end-user-guide/preparing-your-modpack)
 for pack-specific compatibility changes.
 
@@ -46,6 +47,7 @@ After creating the instance: **Edit Instance -> Version -> lwjgl3ify / Cleanroom
 - **`latest`** follows stable lwjgl3ify releases or published Cleanroom releases
   (including alpha releases), checked every six hours.
 - **Numbered versions** stay pinned. Switching also supports downgrades.
+- **UniMixins** has no picker: every lwjgl3ify version installs its latest stable release.
 
 The next launch uses your selection. Restart the launcher if its version list is stale.
 When downgrading Cleanroom, you may also need an older Fugue version.

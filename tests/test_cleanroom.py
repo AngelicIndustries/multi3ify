@@ -12,7 +12,7 @@ import zipfile
 from scripts import build_metadata as meta, cleanroom
 from scripts.verify_metadata import verify
 from scripts.smoke_cleanroom import library_tasks
-from test_metadata import profile as lwjgl3ify_profile, upstream
+from test_metadata import UNIMIXINS, profile as lwjgl3ify_profile, upstream
 
 
 UNIVERSAL = b"test universal jar"
@@ -333,9 +333,11 @@ class CleanroomTests(unittest.TestCase):
             modern = cleanroom.release_profile(release, root / "cache", p["patches"][0])
             source(root / "upstream")
             with patch.object(meta, "build_bootstrap", return_value={"name": "test:bootstrap:1"}):
-                meta.build(root / "upstream", root / "before", "https://example.org", [lwjgl3ify_profile()], [profile()])
+                meta.build(root / "upstream", root / "before", "https://example.org", [lwjgl3ify_profile()], [profile()],
+                           unimixins=UNIMIXINS)
                 with patch.object(cleanroom, "LOCK_PATH", root / "before/cleanroom-lock.json"):
-                    meta.build(root / "upstream", root / "after", "https://example.org", [lwjgl3ify_profile()], [modern, profile()])
+                    meta.build(root / "upstream", root / "after", "https://example.org", [lwjgl3ify_profile()], [modern, profile()],
+                               unimixins=UNIMIXINS)
             pin = f"v1/{meta.CLEANROOM_UID}/{cleanroom.MINIMUM}.json"
             self.assertEqual((root / "before" / pin).read_bytes(), (root / "after" / pin).read_bytes())
             verify(root / "after/v1", require_cleanroom=True)
@@ -345,10 +347,12 @@ class CleanroomTests(unittest.TestCase):
             root = Path(tmp)
             source(root / "upstream")
             with patch.object(meta, "build_bootstrap", return_value={"name": "test:bootstrap:1"}):
-                meta.build(root / "upstream", root / "old", "https://example.org", [lwjgl3ify_profile()])
-                meta.build(root / "upstream", root / "before", "https://example.org", [lwjgl3ify_profile()], [profile()])
+                meta.build(root / "upstream", root / "old", "https://example.org", [lwjgl3ify_profile()],
+                           unimixins=UNIMIXINS)
+                meta.build(root / "upstream", root / "before", "https://example.org", [lwjgl3ify_profile()], [profile()],
+                           unimixins=UNIMIXINS)
                 meta.build(root / "upstream", root / "after", "https://example.org", [lwjgl3ify_profile()],
-                           [profile("0.6.14-alpha"), profile()])
+                           [profile("0.6.14-alpha"), profile()], unimixins=UNIMIXINS)
             for original in (root / "old/v1").rglob("*.json"):
                 if original.name != "index.json":
                     self.assertEqual(original.read_bytes(), (root / "after/v1" / original.relative_to(root / "old/v1")).read_bytes())

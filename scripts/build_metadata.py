@@ -30,6 +30,8 @@ GAME_VERSION = "1.7.10"
 LWJGL3IFY_UID = "io.github.jackofnonetrades.lwjgl3ify"
 BOOTSTRAP_CLASS = "io.github.jackofnonetrades.multi3ify.Bootstrap"
 RELEASES_API = "https://api.github.com/repos/GTNewHorizons/lwjgl3ify/releases"
+UNIMIXINS_RELEASES_API = "https://api.github.com/repos/LegacyModdingMC/UniMixins/releases"
+UNIMIXINS_PLUGIN = "io.github.legacymoddingmc.unimixins.all.AllCore"
 CACHE_SCHEMA = 1
 MC_ALIASES = {MC_VERSION: GAME_VERSION, "1.12.2-cleanroom": "1.12.2"}
 CLEANROOM_UID = "io.github.jackofnonetrades.cleanroom"
@@ -221,6 +223,36 @@ def release_profile(release, cache):
     return result
 
 
+def unimixins_release(cache):
+    """The newest stable combined jar, which every lwjgl3ify version installs."""
+    batch = json.loads(fetch(f"{UNIMIXINS_RELEASES_API}?per_page=100"))
+    if not isinstance(batch, list):
+        raise ValueError("Unexpected GitHub releases response")
+    stable = [r for r in batch if not r["draft"] and not r["prerelease"]
+              and re.fullmatch(r"\d+\.\d+\.\d+", r["tag_name"])]
+    if not stable:
+        raise ValueError("No stable UniMixins releases found")
+    release = max(stable, key=lambda r: version_key(r["tag_name"]))
+    version = release["tag_name"]
+    name = f"+unimixins-all-1.7.10-{version}.jar"
+    asset = next((a for a in release["assets"] if a["name"] == name), None)
+    if asset is None:
+        raise ValueError(f"UniMixins {version} is missing {name}")
+    fingerprint = {k: asset.get(k) for k in ("id", "name", "size", "updated_at", "digest", "browser_download_url")}
+    key = sha256(encoded({"schema": CACHE_SCHEMA, "asset": fingerprint}))
+    cached = cache / f"{version}-{key}.json"
+    if cached.exists():
+        return json.loads(cached.read_bytes())
+    data = asset_bytes(asset)
+    with zipfile.ZipFile(io.BytesIO(data)) as jar:
+        if f"FMLCorePlugin: {UNIMIXINS_PLUGIN}" not in jar.read("META-INF/MANIFEST.MF").decode():
+            raise ValueError(f"{name} is not the combined UniMixins jar")
+    result = {"version": version, "url": asset["browser_download_url"], "sha256": sha256(data)}
+    write_json(cached, result)
+    print(f"Prepared UniMixins {version}", flush=True)
+    return result
+
+
 def build_bootstrap(output, site_url):
     """Use a content-addressed Maven version so published helper URLs never change."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -258,7 +290,7 @@ def build_bootstrap(output, site_url):
                                         "sha1": hashlib.sha1(data).hexdigest(), "size": len(data)}}}
 
 
-def lwjgl3ify_document(profile, latest_forge, bootstrap):
+def lwjgl3ify_document(profile, latest_forge, bootstrap, unimixins):
     patches = profile["patches"]
     forge = next(p for p in patches if p["uid"] == "net.minecraftforge")
     minecraft = next(p for p in patches if p["uid"] == "net.minecraft")
@@ -294,6 +326,8 @@ def lwjgl3ify_document(profile, latest_forge, bootstrap):
     document["libraries"].append(copy.deepcopy(bootstrap))
     document["+jvmArgs"].extend([f"-Dmulti3ify.modUrl={profile['modUrl']}",
                                  f"-Dmulti3ify.modSha256={profile['modSha256']}",
+                                 f"-Dmulti3ify.unimixinsUrl={unimixins['url']}",
+                                 f"-Dmulti3ify.unimixinsSha256={unimixins['sha256']}",
                                  f"-Dmulti3ify.delegate={delegate}"])
     return document
 
@@ -365,7 +399,7 @@ def add_versions(meta, uid, documents, *, aliases=None, name=None):
     write_json(root_path, root)
 
 
-def build(source, output, site_url, profiles, cleanroom_profiles=None, *, fjord_source=None):
+def build(source, output, site_url, profiles, cleanroom_profiles=None, *, unimixins, fjord_source=None):
     if output.exists():
         raise ValueError(f"Output already exists; choose a fresh directory: {output}")
     output.mkdir(parents=True)
@@ -382,7 +416,7 @@ def build(source, output, site_url, profiles, cleanroom_profiles=None, *, fjord_
                              for r in v.get("requires", []))]
     latest_forge = max(forge_versions, key=lambda v: tuple(map(int, v.split("."))))
     bootstrap = build_bootstrap(output, site_url)
-    documents = [lwjgl3ify_document(p, latest_forge, bootstrap) for p in profiles]
+    documents = [lwjgl3ify_document(p, latest_forge, bootstrap, unimixins) for p in profiles]
     latest = copy.deepcopy(documents[0])
     latest["version"] = "latest"
     documents.insert(0, latest)
@@ -405,7 +439,8 @@ def build(source, output, site_url, profiles, cleanroom_profiles=None, *, fjord_
                "upstreamVersions": count, "minecraft": MC_VERSION, "gameVersion": GAME_VERSION, "forge": latest_forge,
                "lwjgl3ifyComponent": LWJGL3IFY_UID, "forgeComponentVersion": bridge["version"],
                "legacyForgeVersions": legacy_count,
-               "latest": profiles[0]["version"], "versions": [p["version"] for p in profiles]}
+               "latest": profiles[0]["version"], "versions": [p["version"] for p in profiles],
+               "unimixins": unimixins["version"]}
     if cleanroom_profiles is not None:
         from scripts import cleanroom
         status["cleanroom"] = cleanroom.publish(meta, cleanroom_profiles)
@@ -435,10 +470,11 @@ def main():
         profiles = list(pool.map(lambda r: release_profile(r, args.cache), releases(args.minimum)))
         cleanroom_profiles = list(pool.map(lambda r: cleanroom.release_profile(r, args.cache / "cleanroom", minecraft),
                                            cleanroom.releases(args.cleanroom_minimum)))
+    unimixins = unimixins_release(args.cache / "unimixins")
     documents = build(args.upstream, args.output, args.site_url, profiles, cleanroom_profiles,
-                      fjord_source=args.fjord_upstream)
-    print(f"Built {len(documents)} lwjgl3ify and {len(cleanroom_profiles) + 1} Cleanroom versions "
-          f"(including latest) at {args.output}")
+                      unimixins=unimixins, fjord_source=args.fjord_upstream)
+    print(f"Built {len(documents)} lwjgl3ify versions with UniMixins {unimixins['version']} and "
+          f"{len(cleanroom_profiles) + 1} Cleanroom versions (including latest) at {args.output}")
 
 
 if __name__ == "__main__":

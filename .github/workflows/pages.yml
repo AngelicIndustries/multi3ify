@@ -94,9 +94,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends xvfb libegl1 libegl-mesa0 libgl1-mesa-dri libglx-mesa0
-      - name: Launch the latest profile with only UniMixins installed
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+      - name: Launch the latest profile over a manually installed UniMixins
         run: xvfb-run -a python -m scripts.smoke_launch public
       - uses: actions/setup-java@v6
         with:
@@ -125,6 +123,7 @@ jobs:
               'metadataCommit': subprocess.check_output(['git', '-C', '.upstream', 'rev-parse', 'HEAD'], text=True).strip(),
               'fjordMetadataCommit': subprocess.check_output(['git', '-C', '.fjord-upstream', 'rev-parse', 'HEAD'], text=True).strip(),
               'lwjgl3ifyVersions': status['versions'],
+              'unimixinsVersion': status['unimixins'],
               'cleanroomVersions': status['cleanroom']['versions'],
           }
           pathlib.Path('sync-state.json').write_text(json.dumps(state, indent=2) + '\n')
