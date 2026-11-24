@@ -36,6 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
+      actions: read
       contents: write
       pages: write
       id-token: write
@@ -108,6 +109,20 @@ jobs:
         with:
           path: public
           include-hidden-files: true
+      - name: Wait for the Pages artifact to be listed
+        # deploy-pages looks the artifact up only once, and the run's artifact
+        # listing can lag a few seconds behind a finished upload.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for attempt in $(seq 30); do
+            count=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=github-pages" \
+              --jq .total_count || echo 0)
+            [ "$count" -gt 0 ] && exit 0
+            sleep 2
+          done
+          echo "::error::The github-pages artifact was still not listed after 60 seconds"
+          exit 1
       - uses: actions/deploy-pages@v5
         id: deploy
       - name: Record the published upstream state
