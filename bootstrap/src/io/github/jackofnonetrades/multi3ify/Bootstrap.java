@@ -155,14 +155,6 @@ public final class Bootstrap {
         // classes. Loading PointerBuffer here can bind the wrong implementation,
         // and native initialization must remain on upstream's macOS main thread.
         URL legacy = Bootstrap.class.getClassLoader().getResource("org/lwjgl/LWJGLException.class");
-        if (legacy != null && System.getProperty("multi3ify.liteloaderSha256") != null) {
-            return "LiteLoader 1.7.10_04-lwjgl3ify needs the 1.7.10-lwjgl3ify Minecraft profile.\n"
-                    + "To use lwjgl3ify, select Edit Instance -> Version -> Minecraft -> Change version"
-                    + " -> 1.7.10-lwjgl3ify-liteloader.\n"
-                    + "For ordinary Forge without lwjgl3ify, change LiteLoader to 1.7.10_04 instead, and remove"
-                    + " the lwjgl3ify component if it is still listed.\n"
-                    + "No mods were changed by this launch.";
-        }
         if (legacy != null) {
             return "LWJGL 2 is still on this instance's classpath, alongside lwjgl3ify's LWJGL 3.\n"
                     + "In your launcher, select Edit Instance -> Version -> Minecraft -> Change version"

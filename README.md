@@ -34,6 +34,9 @@ the standard Prism packages and custom Minecraft profiles.
 
 For a new instance, choose **`1.7.10-lwjgl3ify-liteloader`** above. Don't pick LiteLoader in the new-instance
 dialog's mod loader list: it only offers LiteLoader with plain `1.7.10`, which keeps LWJGL 2 and Java 8.
+Such an instance fails to start with `Unrecognized option: --enable-native-access` in the launch log, as does any
+instance still on plain `1.7.10` or a forced Java 8. Select **Edit Instance -> Version -> Minecraft -> Change version**,
+choose `1.7.10-lwjgl3ify-liteloader` (or `1.7.10-lwjgl3ify`), and clear any Java 8 override.
 
 To add LiteLoader to an existing **`1.7.10-lwjgl3ify`** instance, select **Edit Instance -> Version -> Install Loader**
 (or **Install LiteLoader**) and choose **`1.7.10_04-lwjgl3ify`**, not the recommended `1.7.10_04`.

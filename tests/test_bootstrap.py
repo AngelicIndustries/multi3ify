@@ -38,13 +38,10 @@ class BootstrapTests(unittest.TestCase):
             self.assertEqual(list(mods.iterdir()), [existing])
             self.assertFalse((mods.parent / ".multi3ify.lock").exists())
 
-    def test_liteloader_mistakes_stop_before_mod_installation(self):
+    def test_launcher_liteloader_stops_before_mod_installation(self):
         cases = {
             # Stock LiteLoader was installed before the instance moved to lwjgl3ify.
             "com/mumfrey/liteloader/launch/LiteLoaderTweaker.class": ([], "-> 1.7.10_04-lwjgl3ify"),
-            # The lwjgl3ify LiteLoader was picked on an ordinary Forge instance.
-            "org/lwjgl/LWJGLException.class": (["-Dmulti3ify.liteloaderSha256=" + "a" * 64],
-                                               "Minecraft -> Change version -> 1.7.10-lwjgl3ify-liteloader.\n"),
         }
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -364,9 +364,8 @@ def liteloader_document(liteloaderloader):
     """A LiteLoader choice for Prism's Install Loader dialog on lwjgl3ify instances.
 
     LiteloaderLoader needs LiteLoader as a mod, not as a launcher tweaker, so this
-    adds no libraries, tweakers or main class. It only tells the helper which
-    jars to keep in the mods folder. Requiring lwjgl3ify means the helper also
-    runs, and explains itself, if someone picks this on an ordinary instance.
+    adds no libraries, tweakers or main class. It only tells lwjgl3ify's launch
+    helper which jars to keep in the mods folder.
     """
     # Volatile: switching Minecraft away from 1.7.10-lwjgl3ify-liteloader removes
     # it again when it was only added as that profile's dependency.

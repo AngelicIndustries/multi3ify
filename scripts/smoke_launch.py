@@ -48,28 +48,23 @@ def active(library):
     return allowed
 
 
-def check_legacy_conflict(site, work, classpath, liteloader_args=()):
-    """Exercise the real jars from an ordinary instance with only Forge, or the lwjgl3ify LiteLoader, added."""
+def check_legacy_conflict(site, work, classpath):
+    """Exercise the real jars from an ordinary instance with only Forge changed."""
     vanilla = json.loads((site / f"v1/net.minecraft/{GAME_VERSION}.json").read_bytes())
     version = next(r["suggests"] for r in vanilla["requires"] if r["uid"] == "org.lwjgl")
     legacy = json.loads((site / f"v1/org.lwjgl/{version}.json").read_bytes())
     library = next(lib for lib in legacy["libraries"] if lib["name"].startswith("org.lwjgl.lwjgl:lwjgl:"))
     artifact = library["downloads"]["artifact"]
     path = download(artifact, work / "libraries" / Path(urllib.parse.urlparse(artifact["url"]).path).name)
-    cases = [((), "Minecraft -> Change version -> 1.7.10-lwjgl3ify.")]
-    if liteloader_args:
-        cases.append((liteloader_args, f"Minecraft -> Change version -> {MC_LITELOADER_VERSION}."))
     with tempfile.TemporaryDirectory(prefix="legacy-conflict-", dir=work) as tmp:
         game = Path(tmp) / "game"
-        for args, expected in cases:
-            for mixed in ([str(path), *classpath], [*classpath, str(path)]):
-                result = subprocess.run(["java", *args, "-cp", os.pathsep.join(mixed), BOOTSTRAP_CLASS,
-                                         "--gameDir", str(game)], capture_output=True, text=True, timeout=30)
-                if (result.returncode == 0 or expected not in result.stderr or "Exception in thread" in result.stderr
-                        or "VerifyError" in result.stderr or game.exists()):
-                    raise RuntimeError(f"Mixed LWJGL runtime was not rejected before mod installation:\n{result.stderr}")
-    print(f"Real LWJGL 2/3 conflict rejected in both classpath orders before changing instance files"
-          f"{', with and without the lwjgl3ify LiteLoader' if liteloader_args else ''}", flush=True)
+        for mixed in ([str(path), *classpath], [*classpath, str(path)]):
+            result = subprocess.run(["java", "-cp", os.pathsep.join(mixed), BOOTSTRAP_CLASS,
+                                     "--gameDir", str(game)], capture_output=True, text=True, timeout=30)
+            if (result.returncode == 0 or "Minecraft -> Change version -> 1.7.10-lwjgl3ify" not in result.stderr
+                    or "Exception in thread" in result.stderr or "VerifyError" in result.stderr or game.exists()):
+                raise RuntimeError(f"Mixed LWJGL runtime was not rejected before mod installation:\n{result.stderr}")
+    print("Real LWJGL 2/3 conflict rejected in both classpath orders before changing instance files", flush=True)
 
 
 def smoke(site, work, timeout, liteloader=False):
@@ -120,7 +115,7 @@ def smoke(site, work, timeout, liteloader=False):
             native_jars.append(path)
     with ThreadPoolExecutor(max_workers=8) as pool:
         list(pool.map(lambda task: download(*task), tasks))
-    check_legacy_conflict(site, work, classpath, extra_jvm_args)
+    check_legacy_conflict(site, work, classpath)
     natives = work / "natives"
     natives.mkdir(exist_ok=True)
     for path in native_jars:
