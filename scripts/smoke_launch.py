@@ -18,8 +18,8 @@ import time
 import urllib.parse
 import zipfile
 
-from scripts.build_metadata import (fetch, MC_VERSION, GAME_VERSION, LWJGL3IFY_UID, BOOTSTRAP_CLASS, LITELOADER_UID,
-                                    LITELOADER_VERSION)
+from scripts.build_metadata import (fetch, MC_VERSION, MC_LITELOADER_VERSION, GAME_VERSION, LWJGL3IFY_UID,
+                                    BOOTSTRAP_CLASS, LITELOADER_UID)
 
 
 def download(artifact, path):
@@ -72,17 +72,19 @@ def smoke(site, work, timeout, liteloader=False):
     game = work / ("game-liteloader" if liteloader else "game")
     game.mkdir(parents=True, exist_ok=True)
     status = json.loads((site / "status.json").read_bytes())
-    minecraft = json.loads((site / f"v1/net.minecraft/{MC_VERSION}.json").read_bytes())
+    profile = MC_LITELOADER_VERSION if liteloader else MC_VERSION
+    minecraft = json.loads((site / f"v1/net.minecraft/{profile}.json").read_bytes())
     bridge_id = next(r["suggests"] for r in minecraft["requires"] if r["uid"] == "net.minecraftforge")
     bridge = json.loads((site / f"v1/net.minecraftforge/{bridge_id}.json").read_bytes())
     runtime_id = next(r["suggests"] for r in bridge["requires"] if r["uid"] == LWJGL3IFY_UID)
     runtime = json.loads((site / "v1" / LWJGL3IFY_UID / f"{runtime_id}.json").read_bytes())
     if minecraft["version"] != GAME_VERSION:
         raise ValueError("The mod browser must see Minecraft 1.7.10")
-    # Prism appends a loader picked in Install Loader, so its arguments come last.
+    # Follow the profile's LiteLoader dependency; Prism applies its arguments after lwjgl3ify's.
     extra_jvm_args = []
     if liteloader:
-        extra_jvm_args = json.loads((site / "v1" / LITELOADER_UID / f"{LITELOADER_VERSION}.json").read_bytes())["+jvmArgs"]
+        variant = next(r["suggests"] for r in minecraft["requires"] if r["uid"] == LITELOADER_UID)
+        extra_jvm_args = json.loads((site / "v1" / LITELOADER_UID / f"{variant}.json").read_bytes())["+jvmArgs"]
     libraries = {}
     for library in runtime["libraries"]:
         if not active(library):

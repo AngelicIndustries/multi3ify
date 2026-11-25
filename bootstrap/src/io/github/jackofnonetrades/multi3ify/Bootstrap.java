@@ -151,7 +151,7 @@ public final class Bootstrap {
         if (legacy != null && System.getProperty("multi3ify.liteloaderSha256") != null) {
             throw new IOException("LiteLoader 1.7.10_04-lwjgl3ify needs the 1.7.10-lwjgl3ify Minecraft profile.\n"
                     + "To use lwjgl3ify, select Edit Instance -> Version -> Minecraft -> Change version"
-                    + " -> 1.7.10-lwjgl3ify.\n"
+                    + " -> 1.7.10-lwjgl3ify-liteloader.\n"
                     + "For ordinary Forge without lwjgl3ify, change LiteLoader to 1.7.10_04 instead, and remove"
                     + " the lwjgl3ify component if it is still listed.\n"
                     + "No mods were changed by this launch.");

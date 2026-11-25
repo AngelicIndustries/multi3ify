@@ -157,6 +157,15 @@ class MetadataTests(unittest.TestCase):
             self.assertIn("-Dmulti3ify.liteloaderSha256=" + meta.LITELOADER_SHA256, variant["+jvmArgs"])
             self.assertIn("-Dmulti3ify.liteloaderloaderUrl=" + LITELOADERLOADER["url"], variant["+jvmArgs"])
             self.assertIn({"uid": meta.LWJGL3IFY_UID, "suggests": "latest"}, variant["requires"])
+            self.assertTrue(variant["volatile"])
+            # New Instance lists this profile, which brings the variant in with Forge and lwjgl3ify.
+            profiles = output / "v1/net.minecraft"
+            plain = json.loads((profiles / (meta.MC_VERSION + ".json")).read_bytes())
+            with_liteloader = json.loads((profiles / (meta.MC_LITELOADER_VERSION + ".json")).read_bytes())
+            self.assertEqual(with_liteloader["version"], meta.GAME_VERSION)
+            self.assertEqual(with_liteloader["requires"], plain["requires"] + [
+                {"uid": meta.LITELOADER_UID, "suggests": meta.LITELOADER_VERSION}])
+            self.assertNotIn("libraries", with_liteloader)
             verify(output / "v1")
             entries[meta.LITELOADER_VERSION]["recommended"] = True
             index = json.loads((target / "index.json").read_bytes())
@@ -253,7 +262,7 @@ class MetadataTests(unittest.TestCase):
             self.assertEqual(docs[0]["version"], "latest")
             self.assertEqual(len(docs), 3)
             mirrored = Path(tmp) / "verify"
-            self.assertEqual(meta.mirror(output / "v1", mirrored), 9)
+            self.assertEqual(meta.mirror(output / "v1", mirrored), 10)
             for original in source.rglob("*.json"):
                 if original.name != "index.json":
                     self.assertEqual(original.read_bytes(), (output / "v1" / original.relative_to(source)).read_bytes())

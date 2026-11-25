@@ -25,16 +25,20 @@ the standard Prism packages and custom Minecraft profiles.
    | Profile | Installed automatically | Add to `mods` yourself |
    | --- | --- | --- |
    | **`1.7.10-lwjgl3ify`** | Matching Forge, lwjgl3ify runtime and mod, latest [UniMixins](https://github.com/LegacyModdingMC/UniMixins) | Nothing |
+   | **`1.7.10-lwjgl3ify-liteloader`** | The same, plus LiteLoader and [LiteloaderLoader](https://github.com/Midnight145/LiteloaderLoader) | Litemods, if any |
    | **`1.12.2-cleanroom`** | Cleanroom loader and its runtime libraries | [Fugue](https://www.curseforge.com/minecraft/mc-mods/fugue) and [Scalar Legacy](https://www.curseforge.com/minecraft/mc-mods/scalar-legacy) for conventional Forge packs |
 
 3. Enable automatic Java selection/download, clear any forced Java 8 override, and launch.
 
 ### LiteLoader on 1.7.10
 
-On a **`1.7.10-lwjgl3ify`** instance, select **Edit Instance -> Version -> Install Loader** (or
-**Install LiteLoader**) and choose **`1.7.10_04-lwjgl3ify`**, not the recommended `1.7.10_04`. It doesn't work on
-plain `1.7.10`, which keeps LWJGL 2 and Java 8. The next launch installs LiteLoader and
-[LiteloaderLoader](https://github.com/Midnight145/LiteloaderLoader) in `mods`; removing the component removes them.
+For a new instance, choose **`1.7.10-lwjgl3ify-liteloader`** above. Don't pick LiteLoader in the new-instance
+dialog's mod loader list: it only offers LiteLoader with plain `1.7.10`, which keeps LWJGL 2 and Java 8.
+
+To add LiteLoader to an existing **`1.7.10-lwjgl3ify`** instance, select **Edit Instance -> Version -> Install Loader**
+(or **Install LiteLoader**) and choose **`1.7.10_04-lwjgl3ify`**, not the recommended `1.7.10_04`.
+
+The next launch installs LiteLoader and LiteloaderLoader in `mods`; removing the component removes them.
 Put litemods in `mods` as usual. Litemods that patch LWJGL 2 directly don't work with lwjgl3ify.
 
 ## Existing instances

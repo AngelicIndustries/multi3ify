@@ -26,6 +26,9 @@ from datetime import datetime, timezone
 
 ROOT = Path(__file__).resolve().parents[1]
 MC_VERSION = "1.7.10-lwjgl3ify"
+# New Instance only lists loaders whose parent is the selected version's id, so
+# LiteLoader is offered at creation as its own Minecraft entry.
+MC_LITELOADER_VERSION = "1.7.10-lwjgl3ify-liteloader"
 GAME_VERSION = "1.7.10"
 LWJGL3IFY_UID = "io.github.jackofnonetrades.lwjgl3ify"
 BOOTSTRAP_CLASS = "io.github.jackofnonetrades.multi3ify.Bootstrap"
@@ -39,7 +42,7 @@ LITELOADER_URL = "https://dl.liteloader.com/versions/com/mumfrey/liteloader/1.7.
 LITELOADER_SHA256 = "a30e91e7abfcf482fd740893a207e2e00eb6a24d3909bfa2939a13b3c1703b7b"
 LITELOADERLOADER_PLUGIN = "com.midnight.liteloaderloader.core.LiteloaderLoader"
 CACHE_SCHEMA = 1
-MC_ALIASES = {MC_VERSION: GAME_VERSION, "1.12.2-cleanroom": "1.12.2"}
+MC_ALIASES = {MC_VERSION: GAME_VERSION, MC_LITELOADER_VERSION: GAME_VERSION, "1.12.2-cleanroom": "1.12.2"}
 CLEANROOM_UID = "io.github.jackofnonetrades.cleanroom"
 FJORD_PACKAGES = ("moe.yushi.authlibinjector", "org.unmojang.loki")
 
@@ -365,8 +368,10 @@ def liteloader_document(liteloaderloader):
     jars to keep in the mods folder. Requiring lwjgl3ify means the helper also
     runs, and explains itself, if someone picks this on an ordinary instance.
     """
+    # Volatile: switching Minecraft away from 1.7.10-lwjgl3ify-liteloader removes
+    # it again when it was only added as that profile's dependency.
     return {"formatVersion": 1, "uid": LITELOADER_UID, "version": LITELOADER_VERSION,
-            "name": "LiteLoader (lwjgl3ify)", "order": 10,
+            "name": "LiteLoader (lwjgl3ify)", "order": 10, "volatile": True,
             "releaseTime": liteloaderloader["releaseTime"], "type": "release",
             "requires": [{"uid": "net.minecraft", "equals": GAME_VERSION},
                          {"uid": LWJGL3IFY_UID, "suggests": "latest"}],
@@ -476,7 +481,11 @@ def build(source, output, site_url, profiles, cleanroom_profiles=None, *, helper
                       "requires": [{"uid": "net.minecraftforge", "suggests": bridge["version"]}]})
     add_versions(meta, LWJGL3IFY_UID, documents, name="lwjgl3ify")
     add_versions(meta, "net.minecraftforge", [bridge])
+    with_liteloader = copy.deepcopy(minecraft)
+    with_liteloader["name"] = "Minecraft 1.7.10 + lwjgl3ify + LiteLoader"
+    with_liteloader["requires"].append({"uid": LITELOADER_UID, "suggests": LITELOADER_VERSION})
     add_versions(meta, "net.minecraft", [minecraft], aliases={GAME_VERSION: MC_VERSION})
+    add_versions(meta, "net.minecraft", [with_liteloader], aliases={GAME_VERSION: MC_LITELOADER_VERSION})
     add_versions(meta, LITELOADER_UID, [liteloader_document(liteloaderloader)], name="LiteLoader")
     legacy_count = restore_legacy_forge(meta)
     (output / ".nojekyll").touch()
@@ -487,7 +496,8 @@ def build(source, output, site_url, profiles, cleanroom_profiles=None, *, helper
                "legacyForgeVersions": legacy_count,
                "latest": profiles[0]["version"], "versions": [p["version"] for p in profiles],
                "unimixins": unimixins["version"],
-               "liteloader": {"version": LITELOADER_VERSION, "liteloaderloader": liteloaderloader["version"]}}
+               "liteloader": {"version": LITELOADER_VERSION, "minecraft": MC_LITELOADER_VERSION,
+                              "liteloaderloader": liteloaderloader["version"]}}
     if cleanroom_profiles is not None:
         from scripts import cleanroom
         status["cleanroom"] = cleanroom.publish(meta, cleanroom_profiles)

@@ -23,7 +23,8 @@
 <h2>Set up once</h2>
 <ol>
   <li>In Prism, open <strong>Settings → APIs → Services → Metadata Server</strong> and paste the URL above.</li>
-  <li>Create an instance using <strong>1.7.10-lwjgl3ify</strong> or <strong>1.12.2-cleanroom</strong>.
+  <li>Create an instance using <strong>1.7.10-lwjgl3ify</strong>, <strong>1.7.10-lwjgl3ify-liteloader</strong>
+    or <strong>1.12.2-cleanroom</strong>.
     Leave the Mod Loader selection at <strong>None</strong>: its loader and runtime are installed automatically.</li>
   <li>For <strong>Cleanroom</strong> with a conventional Forge pack, install
     <a href="https://www.curseforge.com/minecraft/mc-mods/fugue">Fugue</a> and
@@ -34,8 +35,9 @@
   its matching mod and the latest <a href="https://github.com/LegacyModdingMC/UniMixins">UniMixins</a> before the
   game starts, backing up existing copies. Cleanroom launches directly and includes
   MixinBooter and ConfigAnytime; no UniMixins or Relauncher is needed. Companion mods remain yours to manage.</p>
-<p>For <strong>LiteLoader</strong> on a <strong>1.7.10-lwjgl3ify</strong> instance, use <strong>Install Loader → LiteLoader</strong> and choose
-  <code>1.7.10_04-lwjgl3ify</code> rather than the recommended <code>1.7.10_04</code>. The helper then installs LiteLoader
+<p>For <strong>LiteLoader</strong>, create the instance with <strong>1.7.10-lwjgl3ify-liteloader</strong>. To add it to an
+  existing 1.7.10-lwjgl3ify instance, use <strong>Install Loader → LiteLoader</strong> and choose
+  <code>1.7.10_04-lwjgl3ify</code> rather than the recommended <code>1.7.10_04</code>. The helper installs LiteLoader
   and <a href="https://github.com/Midnight145/LiteloaderLoader">LiteloaderLoader</a> as mods.</p>
 <p class="muted">Current Cleanroom releases use Java 25. Packs using Scala 3 mods need
   <a href="https://www.curseforge.com/minecraft/mc-mods/scalar">Scalar</a> instead of Scalar Legacy.

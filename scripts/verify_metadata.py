@@ -5,8 +5,8 @@ import json
 from pathlib import Path
 import zipfile
 
-from scripts.build_metadata import (MC_VERSION, GAME_VERSION, MC_ALIASES, LWJGL3IFY_UID, CLEANROOM_UID,
-                                    LITELOADER_UID, LITELOADER_VERSION, ROOT, read_verified,
+from scripts.build_metadata import (MC_VERSION, MC_LITELOADER_VERSION, GAME_VERSION, MC_ALIASES, LWJGL3IFY_UID,
+                                    CLEANROOM_UID, LITELOADER_UID, LITELOADER_VERSION, ROOT, read_verified,
                                     reported_version, segment)
 from scripts import cleanroom
 
@@ -88,9 +88,14 @@ def verify(root, *, require_cleanroom=False):
             forge = next(i for i, n in enumerate(names) if n.startswith("net.minecraftforge:forge:"))
             if patches >= forge:
                 raise ValueError("Forge patches must precede Forge on the classpath")
-    if (MC_VERSION not in versions["net.minecraft"] or "latest" not in versions.get(LWJGL3IFY_UID, set())
+    if (not {MC_VERSION, MC_LITELOADER_VERSION} <= versions["net.minecraft"]
+            or "latest" not in versions.get(LWJGL3IFY_UID, set())
             or LITELOADER_VERSION not in versions.get(LITELOADER_UID, set())):
         raise ValueError("Missing custom Minecraft/lwjgl3ify/LiteLoader entries")
+    plain, with_liteloader = (json.loads((root / "net.minecraft" / f"{v}.json").read_bytes())
+                              for v in (MC_VERSION, MC_LITELOADER_VERSION))
+    if with_liteloader["requires"] != plain["requires"] + [{"uid": LITELOADER_UID, "suggests": LITELOADER_VERSION}]:
+        raise ValueError("The LiteLoader Minecraft profile must add only the lwjgl3ify LiteLoader")
     liteloader = json.loads((root / LITELOADER_UID / "index.json").read_bytes())["versions"]
     if any(v.get("recommended") for v in liteloader if v["version"] == LITELOADER_VERSION):
         # Install Loader can't tell lwjgl3ify instances apart, so it would be
