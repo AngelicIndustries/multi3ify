@@ -11,11 +11,16 @@ import java.util.jar.Manifest;
 public final class BootstrapTest {
     private static final String LWJGL3IFY = "me.eigenraven.lwjgl3ify.core.Lwjgl3ifyCoremod";
     private static final String UNIMIXINS = "io.github.legacymoddingmc.unimixins.all.AllCore";
+    private static final String LITELOADERLOADER = "com.midnight.liteloaderloader.core.LiteloaderLoader";
 
     private static Path jar(Path path, String version, String plugin, String modInfo) throws Exception {
+        return jar(path, version, "FMLCorePlugin", plugin, modInfo);
+    }
+
+    private static Path jar(Path path, String version, String attribute, String value, String modInfo) throws Exception {
         Manifest manifest = new Manifest();
         manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
-        if (plugin != null) manifest.getMainAttributes().putValue("FMLCorePlugin", plugin);
+        if (value != null) manifest.getMainAttributes().putValue(attribute, value);
         try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(path), manifest)) {
             jar.putNextEntry(new JarEntry("version.txt"));
             jar.write(version.getBytes("UTF-8"));
@@ -114,7 +119,33 @@ public final class BootstrapTest {
         check(Arrays.equals(unrelatedBefore, Files.readAllBytes(unrelated))
                 && Arrays.equals(dependentBefore, Files.readAllBytes(dependent)), "unrelated mods untouched");
 
+        // The LiteLoader component adds LiteLoader and LiteloaderLoader, replacing manual copies.
+        Path manualLite = jar(mods.resolve("liteloader-1.7.10.jar"), "manual", "TweakClass",
+                Bootstrap.LITELOADER_TWEAKER, null);
+        Path manualLoader = jar(versioned.resolve("LiteloaderLoader-v0.1.2.jar"), "manual", LITELOADERLOADER, null);
+        Path lite = jar(root.resolve("liteloader.jar"), "1.7.10_04", "TweakClass", Bootstrap.LITELOADER_TWEAKER, null);
+        Path loader = jar(root.resolve("liteloaderloader.jar"), "v0.1.3", LITELOADERLOADER, null);
+        String liteHash = Bootstrap.sha256(lite);
+        String loaderHash = Bootstrap.sha256(loader);
+        try {
+            Bootstrap.install(game, Bootstrap.LITELOADER, loader, loaderHash);
+            throw new AssertionError("LiteloaderLoader must not pass as LiteLoader");
+        } catch (java.io.IOException expected) {}
+        Bootstrap.install(game, Bootstrap.LITELOADER, lite, liteHash);
+        Bootstrap.install(game, Bootstrap.LITELOADERLOADER, loader, loaderHash);
+        Path managedLite = mods.resolve(Bootstrap.LITELOADER.managed);
+        Path managedLoader = mods.resolve(Bootstrap.LITELOADERLOADER.managed);
+        check(Bootstrap.sha256(managedLite).equals(liteHash) && Bootstrap.sha256(managedLoader).equals(loaderHash),
+                "LiteLoader and LiteloaderLoader installed");
+        check(!Files.exists(manualLite) && !Files.exists(manualLoader), "manual LiteLoader jars backed up");
+        check(Bootstrap.sha256(mixins).equals(combinedHash) && Bootstrap.sha256(installed).equals(rollbackHash),
+                "LiteLoader leaves lwjgl3ify and UniMixins alone");
+
         // No network is needed when the selected mods are already installed.
+        System.setProperty("multi3ify.liteloaderSha256", liteHash);
+        System.setProperty("multi3ify.liteloaderUrl", "https://invalid.invalid/should-never-be-requested");
+        System.setProperty("multi3ify.liteloaderloaderSha256", loaderHash);
+        System.setProperty("multi3ify.liteloaderloaderUrl", "https://invalid.invalid/should-never-be-requested");
         System.setProperty("multi3ify.modSha256", rollbackHash);
         System.setProperty("multi3ify.modUrl", "https://invalid.invalid/should-never-be-requested");
         System.setProperty("multi3ify.unimixinsSha256", combinedHash);
@@ -124,6 +155,24 @@ public final class BootstrapTest {
         try { Bootstrap.main(forwarded); } catch (Throwable e) { throw new AssertionError(e); }
         check(Arrays.equals(forwarded, com.gtnewhorizons.retrofuturabootstrap.TestDelegate.arguments), "game arguments forwarded");
         check(Thread.currentThread() == com.gtnewhorizons.retrofuturabootstrap.TestDelegate.thread, "macOS main thread preserved");
-        System.out.println("Bootstrap install, upgrade, rollback, migration, UniMixins, verification, and offline launch passed");
+        check(Files.exists(managedLite) && Files.exists(managedLoader), "selected LiteLoader kept");
+
+        // Removing the LiteLoader component removes only the jars the helper manages.
+        Path otherLite = jar(mods.resolve("unrelated-tweaker.jar"), "keep", "TweakClass", "example.Tweaker", null);
+        System.clearProperty("multi3ify.liteloaderSha256");
+        System.clearProperty("multi3ify.liteloaderUrl");
+        System.clearProperty("multi3ify.liteloaderloaderSha256");
+        System.clearProperty("multi3ify.liteloaderloaderUrl");
+        try { Bootstrap.main(forwarded); } catch (Throwable e) { throw new AssertionError(e); }
+        check(!Files.exists(managedLite) && !Files.exists(managedLoader), "deselected LiteLoader removed");
+        check(Files.exists(otherLite) && Bootstrap.sha256(mixins).equals(combinedHash)
+                && Bootstrap.sha256(installed).equals(rollbackHash), "required mods and other tweakers kept");
+        for (String hash : new String[] {liteHash, loaderHash}) {
+            try (java.util.stream.Stream<Path> backups = Files.list(game.resolve(".multi3ify-backups"))) {
+                check(backups.anyMatch(p -> p.getFileName().toString().startsWith(hash)), "removed jar backed up");
+            }
+        }
+        System.out.println("Bootstrap install, upgrade, rollback, migration, UniMixins, LiteLoader, verification,"
+                + " and offline launch passed");
     }
 }

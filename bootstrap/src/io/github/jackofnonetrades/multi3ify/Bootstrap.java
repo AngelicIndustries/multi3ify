@@ -26,39 +26,52 @@ import java.util.regex.Pattern;
 
 /** Installs the metadata-selected mods before RFB/Forge discovers mods. */
 public final class Bootstrap {
+    static final String LITELOADER_TWEAKER = "com.mumfrey.liteloader.launch.LiteLoaderTweaker";
     static final Mod LWJGL3IFY = new Mod("lwjgl3ify", "lwjgl3ify-multi3ify-managed.jar", "multi3ify.mod",
-            "me.eigenraven.lwjgl3ify.core.Lwjgl3ifyCoremod", null);
+            "FMLCorePlugin", "me.eigenraven.lwjgl3ify.core.Lwjgl3ifyCoremod", null, false);
     // Upstream's "+" prefix sorts it before mods that embed an older Mixin. Every
     // UniMixins jar, including the separate modules, names itself in mcmod.info.
     static final Mod UNIMIXINS = new Mod("UniMixins", "+unimixins-multi3ify-managed.jar", "multi3ify.unimixins",
-            "io.github.legacymoddingmc.unimixins.all.AllCore",
-            Pattern.compile("\"name\"\\s*:\\s*\"UniMixins(\"|: )"));
-    static final Mod[] MODS = {LWJGL3IFY, UNIMIXINS};
+            "FMLCorePlugin", "io.github.legacymoddingmc.unimixins.all.AllCore",
+            Pattern.compile("\"name\"\\s*:\\s*\"UniMixins(\"|: )"), false);
+    // Selected by the LiteLoader component: LiteloaderLoader runs LiteLoader as a mod.
+    static final Mod LITELOADER = new Mod("LiteLoader", "liteloader-multi3ify-managed.jar", "multi3ify.liteloader",
+            "TweakClass", LITELOADER_TWEAKER, null, true);
+    static final Mod LITELOADERLOADER = new Mod("LiteloaderLoader", "liteloaderloader-multi3ify-managed.jar",
+            "multi3ify.liteloaderloader", "FMLCorePlugin", "com.midnight.liteloaderloader.core.LiteloaderLoader",
+            null, true);
+    static final Mod[] MODS = {LWJGL3IFY, UNIMIXINS, LITELOADER, LITELOADERLOADER};
 
     static final class Mod {
         final String name;
         final String managed;
         final String property;
-        final String plugin;
+        final String attribute;
+        final String value;
         final Pattern modInfo;
+        /** Removed again when the launcher no longer selects it. */
+        final boolean optional;
 
-        Mod(String name, String managed, String property, String plugin, Pattern modInfo) {
+        Mod(String name, String managed, String property, String attribute, String value, Pattern modInfo,
+                boolean optional) {
             this.name = name;
             this.managed = managed;
             this.property = property;
-            this.plugin = plugin;
+            this.attribute = attribute;
+            this.value = value;
             this.modInfo = modInfo;
+            this.optional = optional;
         }
 
         /** True for the exact jar the metadata selects. */
         boolean isRelease(Path path) {
-            return matches(path, plugin, null);
+            return matches(path, attribute, value, null);
         }
 
         /** True for any copy that would load alongside the managed jar. */
         boolean isCopy(Path path) {
             return Files.isRegularFile(path) && path.getFileName().toString().endsWith(".jar")
-                    && matches(path, plugin, modInfo);
+                    && matches(path, attribute, value, modInfo);
         }
     }
 
@@ -68,6 +81,8 @@ public final class Bootstrap {
         checkRuntime();
         String[] digests = new String[MODS.length];
         for (int i = 0; i < MODS.length; i++) {
+            // A missing optional mod means its component was removed from the instance.
+            if (MODS[i].optional && System.getProperty(MODS[i].property + "Sha256") == null) continue;
             digests[i] = required(MODS[i].property + "Sha256");
             if (!digests[i].matches("[a-f0-9]{64}")) {
                 throw new IOException("Invalid " + MODS[i].name + " SHA-256 in launcher metadata");
@@ -94,6 +109,7 @@ public final class Bootstrap {
                 // Download everything first, so a network failure leaves every mod as it was.
                 for (int i = 0; i < MODS.length; i++) {
                     sources[i] = mods.resolve(MODS[i].managed);
+                    if (digests[i] == null) continue;
                     if (!Files.isRegularFile(sources[i]) || !sha256(sources[i]).equals(digests[i])) {
                         Path download = Files.createTempFile(mods, ".multi3ify-", ".tmp");
                         downloads.add(download);
@@ -102,7 +118,15 @@ public final class Bootstrap {
                         sources[i] = download;
                     }
                 }
-                for (int i = 0; i < MODS.length; i++) install(game, MODS[i], sources[i], digests[i]);
+                for (int i = 0; i < MODS.length; i++) {
+                    if (digests[i] != null) {
+                        install(game, MODS[i], sources[i], digests[i]);
+                    } else if (Files.exists(sources[i])) {
+                        backup(game, sources[i]);
+                        Files.delete(sources[i]);
+                        System.out.println("[multi3ify] Removed " + MODS[i].name + ", which this instance no longer selects");
+                    }
+                }
             } finally {
                 for (Path download : downloads) Files.deleteIfExists(download);
             }
@@ -124,6 +148,14 @@ public final class Bootstrap {
         // classes. Loading PointerBuffer here can bind the wrong implementation,
         // and native initialization must remain on upstream's macOS main thread.
         URL legacy = Bootstrap.class.getClassLoader().getResource("org/lwjgl/LWJGLException.class");
+        if (legacy != null && System.getProperty("multi3ify.liteloaderSha256") != null) {
+            throw new IOException("LiteLoader 1.7.10_04-lwjgl3ify needs the 1.7.10-lwjgl3ify Minecraft profile.\n"
+                    + "To use lwjgl3ify, select Edit Instance -> Version -> Minecraft -> Change version"
+                    + " -> 1.7.10-lwjgl3ify.\n"
+                    + "For ordinary Forge without lwjgl3ify, change LiteLoader to 1.7.10_04 instead, and remove"
+                    + " the lwjgl3ify component if it is still listed.\n"
+                    + "No mods were changed by this launch.");
+        }
         if (legacy != null) {
             throw new IOException("LWJGL 2 is still on this instance's classpath, alongside lwjgl3ify's LWJGL 3.\n"
                     + "In your launcher, select Edit Instance -> Version -> Minecraft -> Change version"
@@ -132,6 +164,13 @@ public final class Bootstrap {
                     + "If the special Minecraft profile is already selected, remove the leftover LWJGL 2"
                     + " component or local patch from the Version tab.\n"
                     + "No mods were changed by this launch. Conflicting LWJGL 2 resource: " + legacy);
+        }
+        URL tweaker = Bootstrap.class.getClassLoader().getResource(LITELOADER_TWEAKER.replace('.', '/') + ".class");
+        if (tweaker != null) {
+            throw new IOException("LiteLoader is installed as a launcher component, which lwjgl3ify does not support.\n"
+                    + "In your launcher, select Edit Instance -> Version -> LiteLoader -> Change version"
+                    + " -> 1.7.10_04-lwjgl3ify.\n"
+                    + "No mods were changed by this launch. Launcher LiteLoader: " + tweaker);
         }
     }
 
@@ -182,10 +221,10 @@ public final class Bootstrap {
         return hex.toString();
     }
 
-    private static boolean matches(Path path, String plugin, Pattern modInfo) {
+    private static boolean matches(Path path, String attribute, String value, Pattern modInfo) {
         try (JarFile jar = new JarFile(path.toFile())) {
             Manifest manifest = jar.getManifest();
-            if (manifest != null && plugin.equals(manifest.getMainAttributes().getValue("FMLCorePlugin"))) {
+            if (manifest != null && value.equals(manifest.getMainAttributes().getValue(attribute))) {
                 return true;
             }
             JarEntry info = modInfo == null ? null : jar.getJarEntry("mcmod.info");

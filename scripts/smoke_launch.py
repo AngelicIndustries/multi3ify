@@ -2,7 +2,7 @@
 """Linux/x86_64 integration check: boot the latest profile under xvfb.
 
 Uses an isolated offline test instance, never a real launcher account/instance.
-Run: xvfb-run -a python -m scripts.smoke_launch public
+Run: xvfb-run -a python -m scripts.smoke_launch public [--liteloader]
 """
 import argparse
 from concurrent.futures import ThreadPoolExecutor
@@ -18,7 +18,8 @@ import time
 import urllib.parse
 import zipfile
 
-from scripts.build_metadata import fetch, MC_VERSION, GAME_VERSION, LWJGL3IFY_UID, BOOTSTRAP_CLASS
+from scripts.build_metadata import (fetch, MC_VERSION, GAME_VERSION, LWJGL3IFY_UID, BOOTSTRAP_CLASS, LITELOADER_UID,
+                                    LITELOADER_VERSION)
 
 
 def download(artifact, path):
@@ -66,9 +67,9 @@ def check_legacy_conflict(site, work, classpath):
     print("Real LWJGL 2/3 conflict rejected in both classpath orders before changing instance files", flush=True)
 
 
-def smoke(site, work, timeout):
+def smoke(site, work, timeout, liteloader=False):
     site, work = site.resolve(), work.resolve()
-    game = work / "game"
+    game = work / ("game-liteloader" if liteloader else "game")
     game.mkdir(parents=True, exist_ok=True)
     status = json.loads((site / "status.json").read_bytes())
     minecraft = json.loads((site / f"v1/net.minecraft/{MC_VERSION}.json").read_bytes())
@@ -78,6 +79,10 @@ def smoke(site, work, timeout):
     runtime = json.loads((site / "v1" / LWJGL3IFY_UID / f"{runtime_id}.json").read_bytes())
     if minecraft["version"] != GAME_VERSION:
         raise ValueError("The mod browser must see Minecraft 1.7.10")
+    # Prism appends a loader picked in Install Loader, so its arguments come last.
+    extra_jvm_args = []
+    if liteloader:
+        extra_jvm_args = json.loads((site / "v1" / LITELOADER_UID / f"{LITELOADER_VERSION}.json").read_bytes())["+jvmArgs"]
     libraries = {}
     for library in runtime["libraries"]:
         if not active(library):
@@ -144,7 +149,7 @@ def smoke(site, work, timeout):
                  for arg in shlex.split(minecraft["minecraftArguments"])]
     for tweaker in runtime["+tweakers"]:
         game_args.extend(["--tweakClass", tweaker])
-    command = ["java", "-Xmx2G", f"-Djava.library.path={natives}", *runtime["+jvmArgs"],
+    command = ["java", "-Xmx2G", f"-Djava.library.path={natives}", *runtime["+jvmArgs"], *extra_jvm_args,
                "-cp", os.pathsep.join(classpath), runtime["mainClass"], *game_args]
     xdg_data = work / "xdg-data"
     xdg_data.mkdir(exist_ok=True)
@@ -158,13 +163,22 @@ def smoke(site, work, timeout):
             while time.monotonic() < deadline:
                 output = log_path.read_text(errors="replace")
                 if "Forge Mod Loader has successfully loaded" in output:
-                    for managed in ("lwjgl3ify-multi3ify-managed.jar", "+unimixins-multi3ify-managed.jar"):
+                    managed_jars = ["lwjgl3ify-multi3ify-managed.jar", "+unimixins-multi3ify-managed.jar"]
+                    if liteloader:
+                        managed_jars += ["liteloader-multi3ify-managed.jar", "liteloaderloader-multi3ify-managed.jar"]
+                    for managed in managed_jars:
                         if not (game / "mods" / managed).exists():
                             raise RuntimeError(f"The helper did not install {managed}")
                     if manual.exists() or not list((game / ".multi3ify-backups").glob("*-" + manual.name)):
                         raise RuntimeError("The helper did not back up the manual UniMixins copy")
+                    if liteloader and ("LiteLoader begin POSTINIT" not in output
+                                       or "[LiteloaderLoader]: Applying transformation" not in output):
+                        print(output[-24000:])
+                        raise RuntimeError("LiteLoader did not start through LiteloaderLoader")
+                    extra = (f" and LiteloaderLoader {status['liteloader']['liteloaderloader']}"
+                             if liteloader else "")
                     print(f"Forge and lwjgl3ify {status['latest']} initialized successfully with the managed "
-                          f"UniMixins {status['unimixins']}, which replaced a manual copy")
+                          f"UniMixins {status['unimixins']}, which replaced a manual copy{extra}")
                     return
                 if process.poll() is not None:
                     break
@@ -186,5 +200,6 @@ if __name__ == "__main__":
     parser.add_argument("site", type=Path)
     parser.add_argument("--work", type=Path, default=Path("build/launch-smoke"))
     parser.add_argument("--timeout", type=int, default=180)
+    parser.add_argument("--liteloader", action="store_true", help="Also select the lwjgl3ify LiteLoader")
     options = parser.parse_args()
-    smoke(options.site, options.work, options.timeout)
+    smoke(options.site, options.work, options.timeout, options.liteloader)

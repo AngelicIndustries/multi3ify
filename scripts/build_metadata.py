@@ -30,8 +30,14 @@ GAME_VERSION = "1.7.10"
 LWJGL3IFY_UID = "io.github.jackofnonetrades.lwjgl3ify"
 BOOTSTRAP_CLASS = "io.github.jackofnonetrades.multi3ify.Bootstrap"
 RELEASES_API = "https://api.github.com/repos/GTNewHorizons/lwjgl3ify/releases"
-UNIMIXINS_RELEASES_API = "https://api.github.com/repos/LegacyModdingMC/UniMixins/releases"
 UNIMIXINS_PLUGIN = "io.github.legacymoddingmc.unimixins.all.AllCore"
+LITELOADER_UID = "com.mumfrey.liteloader"
+LITELOADER_VERSION = "1.7.10_04-lwjgl3ify"
+# LiteLoader for 1.7.10 has not changed since 2014. The helper verifies this
+# hash at launch, and the LiteLoader launch test downloads it on every build.
+LITELOADER_URL = "https://dl.liteloader.com/versions/com/mumfrey/liteloader/1.7.10_04/liteloader-1.7.10_04.jar"
+LITELOADER_SHA256 = "a30e91e7abfcf482fd740893a207e2e00eb6a24d3909bfa2939a13b3c1703b7b"
+LITELOADERLOADER_PLUGIN = "com.midnight.liteloaderloader.core.LiteloaderLoader"
 CACHE_SCHEMA = 1
 MC_ALIASES = {MC_VERSION: GAME_VERSION, "1.12.2-cleanroom": "1.12.2"}
 CLEANROOM_UID = "io.github.jackofnonetrades.cleanroom"
@@ -223,34 +229,53 @@ def release_profile(release, cache):
     return result
 
 
-def unimixins_release(cache):
-    """The newest stable combined jar, which every lwjgl3ify version installs."""
-    batch = json.loads(fetch(f"{UNIMIXINS_RELEASES_API}?per_page=100"))
+def manifest_attributes(data):
+    """Main attributes of a jar manifest, with continuation lines joined."""
+    text = data.decode("utf-8").replace("\r\n", "\n").replace("\n ", "")
+    return dict(line.split(": ", 1) for line in text.split("\n\n", 1)[0].splitlines() if ": " in line)
+
+
+def github_jar(repository, asset_name, plugin, cache):
+    """The newest stable release jar of a mod the launch helper installs."""
+    batch = json.loads(fetch(f"https://api.github.com/repos/{repository}/releases?per_page=100"))
     if not isinstance(batch, list):
         raise ValueError("Unexpected GitHub releases response")
     stable = [r for r in batch if not r["draft"] and not r["prerelease"]
-              and re.fullmatch(r"\d+\.\d+\.\d+", r["tag_name"])]
+              and re.fullmatch(r"v?\d+\.\d+\.\d+", r["tag_name"])]
     if not stable:
-        raise ValueError("No stable UniMixins releases found")
-    release = max(stable, key=lambda r: version_key(r["tag_name"]))
-    version = release["tag_name"]
-    name = f"+unimixins-all-1.7.10-{version}.jar"
+        raise ValueError(f"No stable {repository} releases found")
+    release = max(stable, key=lambda r: version_key(r["tag_name"].removeprefix("v")))
+    name = asset_name(release["tag_name"])
     asset = next((a for a in release["assets"] if a["name"] == name), None)
     if asset is None:
-        raise ValueError(f"UniMixins {version} is missing {name}")
+        raise ValueError(f"{repository} {release['tag_name']} is missing {name}")
     fingerprint = {k: asset.get(k) for k in ("id", "name", "size", "updated_at", "digest", "browser_download_url")}
-    key = sha256(encoded({"schema": CACHE_SCHEMA, "asset": fingerprint}))
+    key = sha256(encoded({"schema": CACHE_SCHEMA, "format": 2, "asset": fingerprint}))
+    version = release["tag_name"].removeprefix("v")
     cached = cache / f"{version}-{key}.json"
     if cached.exists():
         return json.loads(cached.read_bytes())
     data = asset_bytes(asset)
     with zipfile.ZipFile(io.BytesIO(data)) as jar:
-        if f"FMLCorePlugin: {UNIMIXINS_PLUGIN}" not in jar.read("META-INF/MANIFEST.MF").decode():
-            raise ValueError(f"{name} is not the combined UniMixins jar")
-    result = {"version": version, "url": asset["browser_download_url"], "sha256": sha256(data)}
+        if manifest_attributes(jar.read("META-INF/MANIFEST.MF")).get("FMLCorePlugin") != plugin:
+            raise ValueError(f"{name} does not provide {plugin}")
+    result = {"version": version, "url": asset["browser_download_url"], "sha256": sha256(data),
+              "releaseTime": release["published_at"]}
     write_json(cached, result)
-    print(f"Prepared UniMixins {version}", flush=True)
+    print(f"Prepared {repository} {version}", flush=True)
     return result
+
+
+def unimixins_release(cache):
+    """The newest stable combined jar, which every lwjgl3ify version installs."""
+    return github_jar("LegacyModdingMC/UniMixins", lambda tag: f"+unimixins-all-1.7.10-{tag}.jar",
+                      UNIMIXINS_PLUGIN, cache)
+
+
+def liteloaderloader_release(cache):
+    """lwjgl3ify needs this coremod to run LiteLoader from the mods folder."""
+    return github_jar("Midnight145/LiteloaderLoader", lambda tag: f"liteloaderloader-{tag}.jar",
+                      LITELOADERLOADER_PLUGIN, cache)
 
 
 def build_bootstrap(output, site_url):
@@ -332,6 +357,25 @@ def lwjgl3ify_document(profile, latest_forge, bootstrap, unimixins):
     return document
 
 
+def liteloader_document(liteloaderloader):
+    """A LiteLoader choice for Prism's Install Loader dialog on lwjgl3ify instances.
+
+    LiteloaderLoader needs LiteLoader as a mod, not as a launcher tweaker, so this
+    adds no libraries, tweakers or main class. It only tells the helper which
+    jars to keep in the mods folder. Requiring lwjgl3ify means the helper also
+    runs, and explains itself, if someone picks this on an ordinary instance.
+    """
+    return {"formatVersion": 1, "uid": LITELOADER_UID, "version": LITELOADER_VERSION,
+            "name": "LiteLoader (lwjgl3ify)", "order": 10,
+            "releaseTime": liteloaderloader["releaseTime"], "type": "release",
+            "requires": [{"uid": "net.minecraft", "equals": GAME_VERSION},
+                         {"uid": LWJGL3IFY_UID, "suggests": "latest"}],
+            "+jvmArgs": [f"-Dmulti3ify.liteloaderUrl={LITELOADER_URL}",
+                         f"-Dmulti3ify.liteloaderSha256={LITELOADER_SHA256}",
+                         f"-Dmulti3ify.liteloaderloaderUrl={liteloaderloader['url']}",
+                         f"-Dmulti3ify.liteloaderloaderSha256={liteloaderloader['sha256']}"]}
+
+
 def forge_bridge(latest_forge, release_time):
     # Reuse the published latest ID: existing instances acquire the independent
     # component on refresh. No libraries here, so dependency insertion order cannot
@@ -399,7 +443,7 @@ def add_versions(meta, uid, documents, *, aliases=None, name=None):
     write_json(root_path, root)
 
 
-def build(source, output, site_url, profiles, cleanroom_profiles=None, *, unimixins, fjord_source=None):
+def build(source, output, site_url, profiles, cleanroom_profiles=None, *, helper_mods, fjord_source=None):
     if output.exists():
         raise ValueError(f"Output already exists; choose a fresh directory: {output}")
     output.mkdir(parents=True)
@@ -416,6 +460,7 @@ def build(source, output, site_url, profiles, cleanroom_profiles=None, *, unimix
                              for r in v.get("requires", []))]
     latest_forge = max(forge_versions, key=lambda v: tuple(map(int, v.split("."))))
     bootstrap = build_bootstrap(output, site_url)
+    unimixins, liteloaderloader = helper_mods["unimixins"], helper_mods["liteloaderloader"]
     documents = [lwjgl3ify_document(p, latest_forge, bootstrap, unimixins) for p in profiles]
     latest = copy.deepcopy(documents[0])
     latest["version"] = "latest"
@@ -432,6 +477,7 @@ def build(source, output, site_url, profiles, cleanroom_profiles=None, *, unimix
     add_versions(meta, LWJGL3IFY_UID, documents, name="lwjgl3ify")
     add_versions(meta, "net.minecraftforge", [bridge])
     add_versions(meta, "net.minecraft", [minecraft], aliases={GAME_VERSION: MC_VERSION})
+    add_versions(meta, LITELOADER_UID, [liteloader_document(liteloaderloader)], name="LiteLoader")
     legacy_count = restore_legacy_forge(meta)
     (output / ".nojekyll").touch()
     shutil.copyfile(ROOT / "site/index.html", output / "index.html")
@@ -440,7 +486,8 @@ def build(source, output, site_url, profiles, cleanroom_profiles=None, *, unimix
                "lwjgl3ifyComponent": LWJGL3IFY_UID, "forgeComponentVersion": bridge["version"],
                "legacyForgeVersions": legacy_count,
                "latest": profiles[0]["version"], "versions": [p["version"] for p in profiles],
-               "unimixins": unimixins["version"]}
+               "unimixins": unimixins["version"],
+               "liteloader": {"version": LITELOADER_VERSION, "liteloaderloader": liteloaderloader["version"]}}
     if cleanroom_profiles is not None:
         from scripts import cleanroom
         status["cleanroom"] = cleanroom.publish(meta, cleanroom_profiles)
@@ -470,10 +517,12 @@ def main():
         profiles = list(pool.map(lambda r: release_profile(r, args.cache), releases(args.minimum)))
         cleanroom_profiles = list(pool.map(lambda r: cleanroom.release_profile(r, args.cache / "cleanroom", minecraft),
                                            cleanroom.releases(args.cleanroom_minimum)))
-    unimixins = unimixins_release(args.cache / "unimixins")
+    helper_mods = {"unimixins": unimixins_release(args.cache / "unimixins"),
+                   "liteloaderloader": liteloaderloader_release(args.cache / "liteloaderloader")}
     documents = build(args.upstream, args.output, args.site_url, profiles, cleanroom_profiles,
-                      unimixins=unimixins, fjord_source=args.fjord_upstream)
-    print(f"Built {len(documents)} lwjgl3ify versions with UniMixins {unimixins['version']} and "
+                      helper_mods=helper_mods, fjord_source=args.fjord_upstream)
+    print(f"Built {len(documents)} lwjgl3ify versions with UniMixins {helper_mods['unimixins']['version']}, "
+          f"LiteloaderLoader {helper_mods['liteloaderloader']['version']} and "
           f"{len(cleanroom_profiles) + 1} Cleanroom versions (including latest) at {args.output}")
 
 

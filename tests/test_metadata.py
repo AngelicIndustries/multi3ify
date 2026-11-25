@@ -11,8 +11,11 @@ from scripts import build_metadata as meta
 from scripts.verify_metadata import verify
 
 
-UNIMIXINS = {"version": "0.3.2", "sha256": "b" * 64,
+UNIMIXINS = {"version": "0.3.2", "sha256": "b" * 64, "releaseTime": "2026-09-20T11:24:34Z",
              "url": "https://example.org/%2Bunimixins-all-1.7.10-0.3.2.jar"}
+LITELOADERLOADER = {"version": "0.1.3", "sha256": "c" * 64, "releaseTime": "2026-07-09T10:22:10Z",
+                    "url": "https://example.org/liteloaderloader-v0.1.3.jar"}
+HELPER_MODS = {"unimixins": UNIMIXINS, "liteloaderloader": LITELOADERLOADER}
 
 
 def profile(version="3.0.33"):
@@ -82,7 +85,8 @@ class MetadataTests(unittest.TestCase):
         combined = jar(meta.UNIMIXINS_PLUGIN)
         def release(tag, data=combined, name=None, **extra):
             name = name or f"+unimixins-all-1.7.10-{tag}.jar"
-            return {"tag_name": tag, "draft": False, "prerelease": False, **extra, "assets": [
+            return {"tag_name": tag, "draft": False, "prerelease": False, "published_at": "2026-01-01T00:00:00Z",
+                    **extra, "assets": [
                 {"name": name.replace(".jar", "-dev.jar"), "size": 1, "browser_download_url": "https://example.org/dev"},
                 {"id": 1, "name": name, "size": len(data), "digest": "sha256:" + meta.sha256(data),
                  "browser_download_url": f"https://example.org/{tag}.jar"}]}
@@ -93,17 +97,76 @@ class MetadataTests(unittest.TestCase):
             with patch.object(meta, "fetch", side_effect=[meta.encoded(listing), combined]):
                 result = meta.unimixins_release(cache)
             self.assertEqual(result, {"version": "0.3.10", "url": "https://example.org/0.3.10.jar",
-                                      "sha256": meta.sha256(combined)})
+                                      "sha256": meta.sha256(combined), "releaseTime": "2026-01-01T00:00:00Z"})
             with patch.object(meta, "fetch", side_effect=[meta.encoded(listing)]):
                 self.assertEqual(meta.unimixins_release(cache), result, "cached jars are not downloaded again")
             module = jar("io.github.legacymoddingmc.unimixins.mixin.MixinCore")
             with (patch.object(meta, "fetch", side_effect=[meta.encoded([release("0.3.11", module)]), module]),
-                  self.assertRaisesRegex(ValueError, "not the combined")):
+                  self.assertRaisesRegex(ValueError, "does not provide")):
                 meta.unimixins_release(cache)
             renamed = [release("0.3.12", name="unimixins-0.3.12.jar")]
             with (patch.object(meta, "fetch", side_effect=[meta.encoded(renamed)]),
                   self.assertRaisesRegex(ValueError, "missing")):
                 meta.unimixins_release(cache)
+
+    def test_liteloaderloader_tags_and_wrapped_manifests(self):
+        # Manifest lines longer than 72 bytes continue on the next line.
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("META-INF/MANIFEST.MF", "Manifest-Version: 1.0\r\nFMLCorePlugin: com.midnight.liteloade"
+                             "rloader.core.LiteloaderLoa\r\n der\r\nFMLAT: liteloaderloader_at.cfg\r\n\r\n")
+        data = buffer.getvalue()
+        assets = [{"name": f"liteloaderloader-v0.1.3{suffix}.jar", "size": len(data), "digest": "sha256:" + meta.sha256(data),
+                   "browser_download_url": f"https://example.org/v0.1.3{suffix}.jar"} for suffix in ("-dev", "-sources", "")]
+        listing = [{"tag_name": "v0.1.3", "draft": False, "prerelease": False, "published_at": "2026-07-09T10:22:10Z",
+                    "assets": assets},
+                   {"tag_name": "v0.2.0-beta", "draft": False, "prerelease": False, "assets": []}]
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch.object(meta, "fetch", side_effect=[meta.encoded(listing), data]) as fetch:
+            result = meta.liteloaderloader_release(Path(tmp))
+        self.assertEqual(result["version"], "0.1.3")
+        self.assertEqual(result["url"], "https://example.org/v0.1.3.jar")
+        self.assertIn("Midnight145/LiteloaderLoader", fetch.call_args_list[0].args[0])
+
+    def test_lwjgl3ify_liteloader_is_offered_without_replacing_stock_liteloader(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source, output = Path(tmp) / "upstream", Path(tmp) / "public"
+            upstream(source)
+            stock = {"formatVersion": 1, "uid": meta.LITELOADER_UID, "version": "1.7.10_04", "order": 10,
+                     "mainClass": "net.minecraft.launchwrapper.Launch",
+                     "requires": [{"uid": "net.minecraft", "equals": "1.7.10"}]}
+            meta.add_versions(source, meta.LITELOADER_UID, [stock], name="LiteLoader")
+            index_path = source / meta.LITELOADER_UID / "index.json"
+            index = json.loads(index_path.read_bytes())
+            index["versions"][0]["recommended"] = True
+            root = json.loads((source / "index.json").read_bytes())
+            next(p for p in root["packages"] if p["uid"] == meta.LITELOADER_UID)["sha256"] = \
+                meta.write_json(index_path, index)
+            meta.write_json(source / "index.json", root)
+            with patch.object(meta, "build_bootstrap", return_value={"name": "test:bootstrap:1"}):
+                meta.build(source, output, "https://example.org", [profile()], helper_mods=HELPER_MODS)
+            target = output / "v1" / meta.LITELOADER_UID
+            self.assertEqual((source / meta.LITELOADER_UID / "1.7.10_04.json").read_bytes(),
+                             (target / "1.7.10_04.json").read_bytes())
+            entries = {v["version"]: v for v in json.loads((target / "index.json").read_bytes())["versions"]}
+            self.assertTrue(entries["1.7.10_04"]["recommended"])
+            self.assertFalse(entries[meta.LITELOADER_VERSION].get("recommended", False))
+            variant = json.loads((target / (meta.LITELOADER_VERSION + ".json")).read_bytes())
+            self.assertNotIn("mainClass", variant)
+            self.assertNotIn("libraries", variant)
+            self.assertIn("-Dmulti3ify.liteloaderSha256=" + meta.LITELOADER_SHA256, variant["+jvmArgs"])
+            self.assertIn("-Dmulti3ify.liteloaderloaderUrl=" + LITELOADERLOADER["url"], variant["+jvmArgs"])
+            self.assertIn({"uid": meta.LWJGL3IFY_UID, "suggests": "latest"}, variant["requires"])
+            verify(output / "v1")
+            entries[meta.LITELOADER_VERSION]["recommended"] = True
+            index = json.loads((target / "index.json").read_bytes())
+            index["versions"] = list(entries.values())
+            root = json.loads((output / "v1/index.json").read_bytes())
+            next(p for p in root["packages"] if p["uid"] == meta.LITELOADER_UID)["sha256"] = \
+                meta.write_json(target / "index.json", index)
+            meta.write_json(output / "v1/index.json", root)
+            with self.assertRaisesRegex(ValueError, "must not be recommended"):
+                verify(output / "v1")
 
     def test_complete_mirror_preserves_bytes_and_hashes(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -134,7 +197,7 @@ class MetadataTests(unittest.TestCase):
             # Unselected Fjord packages must never replace the Prism snapshot.
             (fjord / "net.minecraft/1.7.10.json").write_text("not valid metadata")
             with patch.object(meta, "build_bootstrap", return_value={"name": "test:bootstrap:1"}):
-                meta.build(source, output, "https://example.org", [profile()], unimixins=UNIMIXINS,
+                meta.build(source, output, "https://example.org", [profile()], helper_mods=HELPER_MODS,
                            fjord_source=fjord)
             target = output / "v1"
             self.assertEqual((target / "net.minecraft/1.7.10.json").read_bytes(),
@@ -186,11 +249,11 @@ class MetadataTests(unittest.TestCase):
             upstream(source)
             with patch.object(meta, "build_bootstrap", return_value={"name": "test:bootstrap:1"}):
                 docs = meta.build(source, output, "https://example.org", [profile(), profile("3.0.32")],
-                                  unimixins=UNIMIXINS)
+                                  helper_mods=HELPER_MODS)
             self.assertEqual(docs[0]["version"], "latest")
             self.assertEqual(len(docs), 3)
             mirrored = Path(tmp) / "verify"
-            self.assertEqual(meta.mirror(output / "v1", mirrored), 8)
+            self.assertEqual(meta.mirror(output / "v1", mirrored), 9)
             for original in source.rglob("*.json"):
                 if original.name != "index.json":
                     self.assertEqual(original.read_bytes(), (output / "v1" / original.relative_to(source)).read_bytes())
@@ -214,7 +277,7 @@ class MetadataTests(unittest.TestCase):
             source, output = Path(tmp) / "upstream", Path(tmp) / "public"
             upstream(source)
             with patch.object(meta, "build_bootstrap", return_value={"name": "test:bootstrap:1"}):
-                docs = meta.build(source, output, "https://example.org", [profile()], unimixins=UNIMIXINS)
+                docs = meta.build(source, output, "https://example.org", [profile()], helper_mods=HELPER_MODS)
             root = output / "v1"
             index = json.loads((root / "net.minecraft/index.json").read_bytes())
             entry = next(v for v in index["versions"] if v["version"] == meta.MC_VERSION)
@@ -241,7 +304,7 @@ class MetadataTests(unittest.TestCase):
             source, output = Path(tmp) / "upstream", Path(tmp) / "public"
             upstream(source)
             with patch.object(meta, "build_bootstrap", return_value={"name": "test:bootstrap:1"}):
-                meta.build(source, output, "https://example.org", [profile(), profile("3.0.32")], unimixins=UNIMIXINS)
+                meta.build(source, output, "https://example.org", [profile(), profile("3.0.32")], helper_mods=HELPER_MODS)
             root = output / "v1"
             forge_index = json.loads((root / "net.minecraftforge/index.json").read_bytes())
             self.assertEqual([v["version"] for v in forge_index["versions"]],
@@ -266,9 +329,9 @@ class MetadataTests(unittest.TestCase):
             source, before, after = (Path(tmp) / name for name in ("upstream", "before", "after"))
             upstream(source)
             with patch.object(meta, "build_bootstrap", return_value={"name": "test:bootstrap:1"}):
-                meta.build(source, before, "https://example.org", [profile(), profile("3.0.32")], unimixins=UNIMIXINS)
+                meta.build(source, before, "https://example.org", [profile(), profile("3.0.32")], helper_mods=HELPER_MODS)
                 meta.build(source, after, "https://example.org", [profile("3.0.34"), profile(), profile("3.0.32")],
-                           unimixins=UNIMIXINS)
+                           helper_mods=HELPER_MODS)
             for version in ("3.0.33", "3.0.32"):
                 path = Path("v1") / meta.LWJGL3IFY_UID / (version + ".json")
                 self.assertEqual((before / path).read_bytes(), (after / path).read_bytes())

@@ -37,6 +37,34 @@ class BootstrapTests(unittest.TestCase):
             self.assertEqual(list(mods.iterdir()), [existing])
             self.assertFalse((mods.parent / ".multi3ify.lock").exists())
 
+    def test_liteloader_mistakes_stop_before_mod_installation(self):
+        cases = {
+            # Stock LiteLoader was installed before the instance moved to lwjgl3ify.
+            "com/mumfrey/liteloader/launch/LiteLoaderTweaker.class": ([], "-> 1.7.10_04-lwjgl3ify"),
+            # The lwjgl3ify LiteLoader was picked on an ordinary Forge instance.
+            "org/lwjgl/LWJGLException.class": (["-Dmulti3ify.liteloaderSha256=" + "a" * 64],
+                                               "Minecraft -> Change version -> 1.7.10-lwjgl3ify.\n"),
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            classes = root / "classes"
+            classes.mkdir()
+            subprocess.run(["javac", "--release", "8", "-Xlint:-options", "-d", str(classes),
+                            str(ROOT / "bootstrap/src/io/github/jackofnonetrades/multi3ify/Bootstrap.java")], check=True)
+            for resource, (properties, expected) in cases.items():
+                with self.subTest(resource=resource):
+                    marker = root / (Path(resource).stem + ".jar")
+                    with zipfile.ZipFile(marker, "w") as jar:
+                        jar.writestr(resource, b"marker")
+                    game = root / Path(resource).stem
+                    result = subprocess.run(["java", *properties, "-cp", os.pathsep.join([str(classes), str(marker)]),
+                                             "io.github.jackofnonetrades.multi3ify.Bootstrap", "--gameDir", str(game)],
+                                            text=True, capture_output=True)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(expected, result.stderr)
+                    self.assertIn("No mods were changed by this launch", result.stderr)
+                    self.assertFalse(game.exists())
+
     def test_real_java_install_upgrade_rollback_and_offline_launch(self):
         with tempfile.TemporaryDirectory() as tmp:
             classes = Path(tmp) / "classes"

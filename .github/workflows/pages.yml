@@ -97,6 +97,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends xvfb libegl1 libegl-mesa0 libgl1-mesa-dri libglx-mesa0
       - name: Launch the latest profile over a manually installed UniMixins
         run: xvfb-run -a python -m scripts.smoke_launch public
+      - name: Launch the latest profile with the lwjgl3ify LiteLoader
+        run: xvfb-run -a python -m scripts.smoke_launch public --liteloader
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -139,6 +141,7 @@ jobs:
               'fjordMetadataCommit': subprocess.check_output(['git', '-C', '.fjord-upstream', 'rev-parse', 'HEAD'], text=True).strip(),
               'lwjgl3ifyVersions': status['versions'],
               'unimixinsVersion': status['unimixins'],
+              'liteloaderloaderVersion': status['liteloader']['liteloaderloader'],
               'cleanroomVersions': status['cleanroom']['versions'],
           }
           pathlib.Path('sync-state.json').write_text(json.dumps(state, indent=2) + '\n')

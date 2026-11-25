@@ -29,6 +29,14 @@ the standard Prism packages and custom Minecraft profiles.
 
 3. Enable automatic Java selection/download, clear any forced Java 8 override, and launch.
 
+### LiteLoader on 1.7.10
+
+On a **`1.7.10-lwjgl3ify`** instance, select **Edit Instance -> Version -> Install Loader** (or
+**Install LiteLoader**) and choose **`1.7.10_04-lwjgl3ify`**, not the recommended `1.7.10_04`. It doesn't work on
+plain `1.7.10`, which keeps LWJGL 2 and Java 8. The next launch installs LiteLoader and
+[LiteloaderLoader](https://github.com/Midnight145/LiteloaderLoader) in `mods`; removing the component removes them.
+Put litemods in `mods` as usual. Litemods that patch LWJGL 2 directly don't work with lwjgl3ify.
+
 ## Existing instances
 
 Select **Edit Instance -> Version -> Minecraft -> Change version**, then choose
