@@ -78,7 +78,13 @@ public final class Bootstrap {
     private Bootstrap() {}
 
     public static void main(String[] args) throws Throwable {
-        checkRuntime();
+        String problem = setupProblem();
+        if (problem != null) {
+            // Instructions for the player, not a crash, so print them without a stack trace.
+            System.err.println("[multi3ify] This instance can't start yet.");
+            for (String line : problem.split("\n")) System.err.println("[multi3ify] " + line);
+            System.exit(1);
+        }
         String[] digests = new String[MODS.length];
         for (int i = 0; i < MODS.length; i++) {
             // A missing optional mod means its component was removed from the instance.
@@ -143,35 +149,37 @@ public final class Bootstrap {
         }
     }
 
-    private static void checkRuntime() throws IOException {
+    /** What the player must change in the launcher before this launch can work, if anything. */
+    private static String setupProblem() {
         // Look for an LWJGL 2-only resource without loading/initializing any LWJGL
         // classes. Loading PointerBuffer here can bind the wrong implementation,
         // and native initialization must remain on upstream's macOS main thread.
         URL legacy = Bootstrap.class.getClassLoader().getResource("org/lwjgl/LWJGLException.class");
         if (legacy != null && System.getProperty("multi3ify.liteloaderSha256") != null) {
-            throw new IOException("LiteLoader 1.7.10_04-lwjgl3ify needs the 1.7.10-lwjgl3ify Minecraft profile.\n"
+            return "LiteLoader 1.7.10_04-lwjgl3ify needs the 1.7.10-lwjgl3ify Minecraft profile.\n"
                     + "To use lwjgl3ify, select Edit Instance -> Version -> Minecraft -> Change version"
                     + " -> 1.7.10-lwjgl3ify-liteloader.\n"
                     + "For ordinary Forge without lwjgl3ify, change LiteLoader to 1.7.10_04 instead, and remove"
                     + " the lwjgl3ify component if it is still listed.\n"
-                    + "No mods were changed by this launch.");
+                    + "No mods were changed by this launch.";
         }
         if (legacy != null) {
-            throw new IOException("LWJGL 2 is still on this instance's classpath, alongside lwjgl3ify's LWJGL 3.\n"
+            return "LWJGL 2 is still on this instance's classpath, alongside lwjgl3ify's LWJGL 3.\n"
                     + "In your launcher, select Edit Instance -> Version -> Minecraft -> Change version"
                     + " -> 1.7.10-lwjgl3ify.\n"
                     + "Changing only the Forge version leaves the ordinary Minecraft runtime installed.\n"
                     + "If the special Minecraft profile is already selected, remove the leftover LWJGL 2"
                     + " component or local patch from the Version tab.\n"
-                    + "No mods were changed by this launch. Conflicting LWJGL 2 resource: " + legacy);
+                    + "No mods were changed by this launch. Conflicting LWJGL 2 resource: " + legacy;
         }
         URL tweaker = Bootstrap.class.getClassLoader().getResource(LITELOADER_TWEAKER.replace('.', '/') + ".class");
         if (tweaker != null) {
-            throw new IOException("LiteLoader is installed as a launcher component, which lwjgl3ify does not support.\n"
+            return "LiteLoader is installed as a launcher component, which lwjgl3ify does not support.\n"
                     + "In your launcher, select Edit Instance -> Version -> LiteLoader -> Change version"
                     + " -> 1.7.10_04-lwjgl3ify.\n"
-                    + "No mods were changed by this launch. Launcher LiteLoader: " + tweaker);
+                    + "No mods were changed by this launch. Launcher LiteLoader: " + tweaker;
         }
+        return null;
     }
 
     private static String required(String name) throws IOException {

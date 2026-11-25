@@ -31,6 +31,7 @@ class BootstrapTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("Minecraft -> Change version -> 1.7.10-lwjgl3ify", result.stderr)
             self.assertIn("Conflicting LWJGL 2 resource:", result.stderr)
+            self.assertNotIn("Exception in thread", result.stderr)
             self.assertNotIn("VerifyError", result.stderr)
             self.assertNotIn("Missing metadata property", result.stderr)
             self.assertEqual(existing.read_bytes(), b"preserve the existing mod")
@@ -62,7 +63,8 @@ class BootstrapTests(unittest.TestCase):
                                             text=True, capture_output=True)
                     self.assertNotEqual(result.returncode, 0)
                     self.assertIn(expected, result.stderr)
-                    self.assertIn("No mods were changed by this launch", result.stderr)
+                    self.assertIn("[multi3ify] No mods were changed by this launch", result.stderr)
+                    self.assertNotIn("Exception in thread", result.stderr, "instructions, not a stack trace")
                     self.assertFalse(game.exists())
 
     def test_real_java_install_upgrade_rollback_and_offline_launch(self):
