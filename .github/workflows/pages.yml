@@ -36,13 +36,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
-      actions: read
       contents: write
       pages: write
       id-token: write
     environment:
       name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
+      url: ${{ steps.deploy.outputs.page_url || steps.deploy-retry.outputs.page_url }}
     env:
       PRISM_META_REPOSITORY: ${{ vars.PRISM_META_REPOSITORY || 'PrismLauncher/meta-launcher' }}
       LWJGL3IFY_MIN_VERSION: ${{ vars.LWJGL3IFY_MIN_VERSION || '3.0.0' }}
@@ -111,22 +110,18 @@ jobs:
         with:
           path: public
           include-hidden-files: true
-      - name: Wait for the Pages artifact to be listed
-        # deploy-pages looks the artifact up only once, and the run's artifact
-        # listing can lag a few seconds behind a finished upload.
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          for attempt in $(seq 30); do
-            count=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=github-pages" \
-              --jq .total_count || echo 0)
-            [ "$count" -gt 0 ] && exit 0
-            sleep 2
-          done
-          echo "::error::The github-pages artifact was still not listed after 60 seconds"
-          exit 1
+      # deploy-pages sometimes finds no artifact right after the upload, or
+      # Pages answers deployment_failed, with GitHub reporting no incident.
+      # Both have passed on a re-run, so retry once after a pause.
       - uses: actions/deploy-pages@v5
         id: deploy
+        continue-on-error: true
+      - name: Wait before retrying the Pages deployment
+        if: steps.deploy.outcome == 'failure'
+        run: sleep 60
+      - uses: actions/deploy-pages@v5
+        id: deploy-retry
+        if: steps.deploy.outcome == 'failure'
       - name: Record the published upstream state
         # Real upstream changes keep the repo active, avoiding GitHub's 60-day
         # inactivity cutoff for scheduled workflows. GITHUB_TOKEN pushes do not
