@@ -50,6 +50,7 @@
     "3.0.0"
   ],
   "unimixinsVersion": "0.3.2",
+  "liteloaderloaderVersion": "0.1.3",
   "cleanroomVersions": [
     "0.7.16-alpha",
     "0.7.15-alpha",
