@@ -65,6 +65,9 @@ After creating the instance: **Edit Instance -> Version -> lwjgl3ify / Cleanroom
 - **UniMixins** has no picker: every lwjgl3ify version installs its latest stable release.
 
 The next launch uses your selection. Restart the launcher if its version list is stale.
+PolyMC 8.1 and older keep launching with a cached version file even after it changes here
+(fixed for the next release by [PolyMC#1863](https://github.com/PolyMC/PolyMC/pull/1863)): quit PolyMC and delete
+the file, e.g. `meta/io.github.jackofnonetrades.lwjgl3ify/latest.json` in its data folder.
 When downgrading Cleanroom, you may also need an older Fugue version.
 
 ## Self-host
