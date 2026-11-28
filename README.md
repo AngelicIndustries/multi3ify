@@ -83,3 +83,13 @@ Optional repository Actions variables:
 | `PRISM_META_REF` | Upstream default branch |
 | `LWJGL3IFY_MIN_VERSION` | `3.0.0` |
 | `CLEANROOM_MIN_VERSION` | `0.6.13-alpha` |
+
+## License
+
+Copyright 2026 jack (JackOfNoneTrades). multi3ify is licensed under the
+[Microsoft Public License (MS-PL)](LICENSE), the license of the MultiMC-derived metadata
+generators it works alongside. This covers every version in this repository's history,
+including the code ported into [PolyMC's meta-scripts](https://github.com/PolyMC/meta-scripts).
+
+It doesn't cover the third-party files in `tests/fixtures/` (unmodified Cleanroom release packs,
+under Cleanroom's license), or the Prism Launcher and Fjord Launcher metadata the feed mirrors.
